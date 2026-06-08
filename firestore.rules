@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Función de ayuda: Verifica si el usuario está autenticado en Firebase
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Función de ayuda: Verifica si el usuario autenticado es miembro del hogar (casa)
+    function isHouseMember(houseId) {
+      return isAuthenticated() && 
+        request.auth.uid in get(/databases/$(database)/documents/houses/$(houseId)).data.members;
+    }
+
+    // Reglas para perfiles de usuario
+    match /users/{userId} {
+      // Un usuario solo puede leer y escribir su propia configuración de perfil
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Reglas para los hogares (casas)
+    match /houses/{houseId} {
+      // Permitir creación de una nueva casa
+      allow create: if isAuthenticated();
+      
+      // Permitir leer y editar la casa si eres miembro, o si eres el creador y estás inicializando
+      allow read, write: if isAuthenticated() && 
+        (request.auth.uid in resource.data.members || request.auth.uid == request.resource.data.owner);
+
+      // Subcolección de productos
+      match /products/{productId} {
+        allow read, write: if isHouseMember(houseId);
+      }
+
+      // Subcolección de compras/facturas
+      match /purchases/{purchaseId} {
+        allow read, write: if isHouseMember(houseId);
+      }
+
+      // Subcolección de notificaciones de stock/deuda
+      match /notifications/{notificationId} {
+        allow read, write: if isHouseMember(houseId);
+      }
+    }
+  }
+}
