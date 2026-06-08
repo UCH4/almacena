@@ -37,12 +37,18 @@ export default defineConfig({
         ]
       }
     })
-  ], build: {
+  ], 
+  build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
-          'react-vendor': ['react', 'react-dom'],
+        // Modificado a formato función para compatibilidad con Rolldown (Vite 8)
+        manualChunks(id) {
+          if (id.includes('firebase')) {
+            return 'firebase';
+          }
+          if (id.includes('react') || id.includes('react-dom')) {
+            return 'react-vendor';
+          }
         }
       }
     }
