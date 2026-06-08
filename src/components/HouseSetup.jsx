@@ -107,9 +107,9 @@ export default function HouseSetup({ onCreateHouse, onJoinHouse, onLogout, user 
               <label className="form-label">Nombre de la Casa / Hogar</label>
               <input 
                 className="form-input" 
-                placeholder="Ej: Casa Tomas y Sofia, Hogar Central" 
+                placeholder="Ej: Casa Tomas y Martina, Hogar Central" 
                 value={houseName}
-                onChange={(e) => setProdName || setHouseName(e.target.value)}
+                onChange={(e) => setHouseName(e.target.value)}
                 required
                 disabled={loading}
               />

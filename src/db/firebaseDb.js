@@ -349,6 +349,53 @@ class FirebaseDb {
     if (n.includes('shampoo') || n.includes('acondicionador') || n.includes('jabón') || n.includes('dove') || n.includes('sedal')) return 'perfumería';
     return 'despensa';
   }
+  // Agregar en FirebaseDb class:
+async getBalances(houseId) {
+  const snap = await getDocs(
+    query(collection(db, 'houses', houseId, 'purchases'))
+  );
+  const purchases = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  let totalPaidT = 0, totalPaidS = 0;
+  let totalShouldPayT = 0, totalShouldPayS = 0;
+  let settlementT_to_S = 0, settlementS_to_T = 0;
+
+  purchases.forEach(p => {
+    if (p.isSettlement) {
+      if (p.quien === 'T') settlementT_to_S += p.total;
+      else if (p.quien === 'S') settlementS_to_T += p.total;
+    } else if (p.estado === 'confirmada') {
+      if (p.quien === 'T') totalPaidT += p.total;
+      if (p.quien === 'S') totalPaidS += p.total;
+      p.items?.forEach(item => {
+        const cost = item.precio * item.qty;
+        const hasT = item.consumidores?.includes('T');
+        const hasS = item.consumidores?.includes('S');
+        if (item.shared || (hasT && hasS)) {
+          totalShouldPayT += cost / 2;
+          totalShouldPayS += cost / 2;
+        } else if (hasT) { totalShouldPayT += cost; }
+        else if (hasS) { totalShouldPayS += cost; }
+      });
+    }
+  });
+
+  const netBalanceT = (totalPaidT - totalShouldPayT) + (settlementT_to_S - settlementS_to_T);
+  return {
+    net: {
+      fromUser: netBalanceT < 0 ? 'T' : 'S',
+      toUser: netBalanceT < 0 ? 'S' : 'T',
+      amount: Math.round(Math.abs(netBalanceT) * 100) / 100,
+      formattedAmount: `$${Math.round(Math.abs(netBalanceT)).toLocaleString('es-AR')}`
+    },
+    summary: {
+      totalPaidT: Math.round(totalPaidT),
+      totalPaidS: Math.round(totalPaidS),
+      totalShouldPayT: Math.round(totalShouldPayT),
+      totalShouldPayS: Math.round(totalShouldPayS)
+    }
+  };
+}
 }
 
 export const firebaseDb = new FirebaseDb();

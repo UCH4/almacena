@@ -80,7 +80,8 @@ class DbProvider {
 
   // --- COMPRAS (PURCHASES) ---
   async addPurchase(houseId, purchase) {
-    return this.db.addPurchase(this.useFirebase ? houseId : purchase);
+    if (this.useFirebase) return this.db.addPurchase(houseId, purchase);
+    return this.db.addPurchase(purchase);
   }
 
   async updatePurchase(houseId, id, data) {
@@ -116,32 +117,7 @@ class DbProvider {
   // Nota: Mantenemos el cálculo financiero local en el frontend basándonos
   // en la lista de compras del snapshot para garantizar funcionamiento offline rápido.
   // Esto es un excelente patrón de diseño offline-first.
-  getBalances(purchases) {
-    // Si estamos en Firebase, hacemos el cálculo basándonos en la lista actual
-    // para evitar consultas repetidas al servidor.
-    if (this.useFirebase) {
-      let totalPaidT = 0;
-      let totalPaidS = 0;
-      let totalShouldPayT = 0;
-      let totalShouldPayS = 0;
-      let settlementT_to_S = 0;
-      let settlementS_to_T = 0;
 
-      purchases.forEach(p => {
-        if (p.isSettlement) {
-          // Usar los UIDs para identificar los flujos en Firebase
-          // Tomas (T) y Hermana (S) se mapean dinámicamente según quién paga
-          // En firebaseDb, guardamos en `quien` el UID real
-          // En App.jsx determinamos quién es el deudor y quién el acreedor
-        }
-      });
-      // El cálculo detallado se delega a App.jsx o a mockDb según la lista.
-    }
-    
-    // Devolvemos el cálculo genérico de mockDb sobre compras
-    // mockDb tiene la lógica implementada de forma genérica
-    return mockDb.getBalances();
-  }
 
   async saldarDeudas(houseId, balance, payerUid, receiverUid, payerName, receiverName) {
     if (this.useFirebase) return this.db.saldarDeudas(houseId, balance, payerUid, receiverUid, payerName, receiverName);
