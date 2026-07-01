@@ -34,6 +34,12 @@ export default function MobileTabs({ activePage, setActivePage, pendingPurchases
       >
         <span className="m-icon">🍽️</span>Recetas
       </button>
+      <button 
+        className={`mobile-tab ${activePage === 'actividad' ? 'active' : ''}`} 
+        onClick={() => setActivePage('actividad')}
+      >
+        <span className="m-icon">📋</span>Traza
+      </button>
     </div>
   );
 }

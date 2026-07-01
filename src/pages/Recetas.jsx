@@ -1,132 +1,81 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { suggestRecipes, generateMealPlan } from '../services/gemini';
 
-const RECIPES_DB = [
+const FALLBACK_RECIPES = [
   {
-    id: 1,
-    emoji: '🍝',
-    nombre: 'Spaghetti al tomate',
-    tiempo: '25 min',
-    dificultad: 'Fácil',
+    id: 1, emoji: '🍝', nombre: 'Spaghetti al tomate',
+    tiempo: '25 min', dificultad: 'Fácil',
     ingredientes: ['Fideos spaghetti 500g', 'Tomate perita lata', 'Aceite girasol 1.5L'],
-    pasos: [
-      'Hervir agua con sal y cocinar los fideos al dente (8-10 min).',
-      'Calentar aceite en sartén, agregar el tomate perita machacado y cocinar 10 min.',
-      'Condimentar con sal, orégano y ajo a gusto.',
-      'Mezclar la salsa con los fideos y servir caliente.'
-    ]
+    pasos: ['Hervir agua con sal y cocinar los fideos al dente.', 'Calentar aceite, agregar tomate perita y cocinar 10 min.', 'Condimentar y mezclar con los fideos.']
   },
   {
-    id: 2,
-    emoji: '🥛',
-    nombre: 'Arroz con leche',
-    tiempo: '35 min',
-    dificultad: 'Fácil',
-    ingredientes: ['Arroz largo fino 1kg', 'Leche entera 1L', 'Manteca 200g'],
-    pasos: [
-      'Hervir 1 taza de arroz con 2 tazas de leche y una pizca de sal.',
-      'Revolver cada 5 min a fuego lento para que no se pegue.',
-      'Agregar manteca y azúcar/canela a gusto.',
-      'Enfriar y servir frío.'
-    ]
-  },
-  {
-    id: 3,
-    emoji: '🥩',
-    nombre: 'Milanesas a la napolitana',
-    tiempo: '30 min',
-    dificultad: 'Media',
+    id: 2, emoji: '🥩', nombre: 'Milanesas a la napolitana',
+    tiempo: '30 min', dificultad: 'Media',
     ingredientes: ['Milanesas de ternera', 'Tomate perita lata', 'Queso cremoso 250g'],
-    pasos: [
-      'Cocinar las milanesas de ternera al horno o fritas.',
-      'Cubrir cada milanesa con una cucharada de salsa de tomate perita.',
-      'Colocar rodajas de queso cremoso arriba.',
-      'Llevar a horno fuerte para gratinar el queso por 5 minutos y servir.'
-    ]
+    pasos: ['Cocinar las milanesas.', 'Cubrir con salsa de tomate.', 'Agregar queso y gratinar.']
   },
   {
-    id: 4,
-    emoji: '🍌',
-    nombre: 'Licuado de banana y yogur',
-    tiempo: '5 min',
-    dificultad: 'Fácil',
-    ingredientes: ['Banana 1kg', 'Yogur natural', 'Leche entera 1L'],
-    pasos: [
-      'Pelar y trocear las bananas.',
-      'Colocar las bananas, el yogur natural y la leche entera en una licuadora.',
-      'Licuar a velocidad máxima por 2 minutos.',
-      'Endulzar con azúcar o miel a gusto y servir bien frío.'
-    ]
-  },
-  {
-    id: 5,
-    emoji: '🥗',
-    nombre: 'Ensalada de frutas otoñal',
-    tiempo: '10 min',
-    dificultad: 'Fácil',
-    ingredientes: ['Banana 1kg', 'Manzana 1kg', 'Naranjas de jugo'],
-    pasos: [
-      'Pelar y cortar todas las frutas en cubos de tamaño mediano.',
-      'Mezclar las frutas en un bowl grande.',
-      'Agregar jugo de limón para evitar que se oxiden.',
-      'Enfriar en la heladera durante 15 minutos antes de servir.'
-    ]
+    id: 3, emoji: '🥗', nombre: 'Ensalada completa',
+    tiempo: '10 min', dificultad: 'Fácil',
+    ingredientes: ['Lechuga', 'Tomate', 'Huevo', 'Atún'],
+    pasos: ['Lavar y cortar verduras.', 'Mezclar todos los ingredientes.', 'Aliñar con aceite, sal y limón.']
   }
 ];
 
-const DEFAULT_MEAL_PLAN = {
-  Lunes: { breakfast: 'Licuado de banana y yogur', lunch: 'Milanesas de ternera con puré de papas', dinner: 'Spaghetti con salsa de tomate perita' },
-  Martes: { breakfast: 'Yogur natural con manzana picada', lunch: 'Sorrentinos de ricota y jamón', dinner: 'Arroz con queso y manteca' },
-  Miércoles: { breakfast: 'Tostadas con manteca', lunch: 'Fideos con aceite y queso', dinner: 'Milanesas de ternera al horno' },
-  Jueves: { breakfast: 'Licuado de banana con leche', lunch: 'Sorrentinos con salsa filetto', dinner: 'Arroz con leche casero' },
-  Viernes: { breakfast: 'Yogur natural con banana', lunch: 'Spaghetti al ajo y aceite', dinner: 'Milanesas a la napolitana con papas fritas' },
-  Sábado: { breakfast: 'Ensalada de frutas otoñal', lunch: 'Arroz al pesto', dinner: 'Pizza casera compartida' },
-  Domingo: { breakfast: 'Licuado cremoso de frutas', lunch: 'Asado o verduras asadas', dinner: 'Sopa casera con fideos' }
-};
-
 export default function Recetas({ products, onConsumeMultiple, showToast, house, onUpdateMealPlan }) {
-  const [activeTab, setActiveTab] = useState('recipes'); // 'recipes' or 'mealPlan'
+  const [activeTab, setActiveTab] = useState('recipes');
   const [loadingRecipes, setLoadingRecipes] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [aiRecipes, setAiRecipes] = useState(null);
 
-  // Leer plan alimentario guardado en el hogar o usar null
   const currentMealPlan = house?.mealPlan || null;
 
-  // Actualizar sugerencias de recetas individuales
-  const handleRefreshRecetas = () => {
+  const handleRefreshRecetas = async () => {
     setLoadingRecipes(true);
-    setTimeout(() => {
+    try {
+      const recipes = await suggestRecipes(products || []);
+      setAiRecipes(recipes);
+      showToast(`✨ Gemini sugirió ${recipes.length} recetas basadas en tu stock.`, 'success');
+    } catch (e) {
+      showToast(`⚠️ Error de IA: ${e.message}`, 'error');
+      setAiRecipes(null);
+    } finally {
       setLoadingRecipes(false);
-      showToast('✨ Vertex AI ha analizado tu stock y actualizado las sugerencias.', 'success');
-    }, 1800);
+    }
   };
 
-  // Generar plan alimentario semanal por IA
-  const handleGenerateMealPlan = () => {
+  const handleGenerateMealPlan = async () => {
     setLoadingPlan(true);
-    setTimeout(() => {
-      setLoadingPlan(false);
+    try {
+      const plan = await generateMealPlan(products || [], house?.membersInfo);
       if (onUpdateMealPlan) {
-        onUpdateMealPlan(DEFAULT_MEAL_PLAN);
-      } else {
-        showToast('✨ Plan alimentario simulado generado.', 'success');
+        await onUpdateMealPlan(plan);
       }
-    }, 2200);
+      showToast('📅 Plan semanal generado por Gemini.', 'success');
+    } catch (e) {
+      showToast(`⚠️ Error generando plan: ${e.message}`, 'error');
+    } finally {
+      setLoadingPlan(false);
+    }
   };
 
   const getIngredientStockStatus = (ingName) => {
-    const found = products.find(p => p.nombre.toLowerCase().includes(ingName.toLowerCase()) || ingName.toLowerCase().includes(p.nombre.toLowerCase()));
+    const list = products || [];
+    const found = list.find(p => p.nombre.toLowerCase().includes(ingName.toLowerCase()) || ingName.toLowerCase().includes(p.nombre.toLowerCase()));
     return {
       available: found && found.stock > 0,
       stockProduct: found
     };
   };
 
-  const recipesWithStockStatus = RECIPES_DB.map(recipe => {
+  const recipeSource = aiRecipes || FALLBACK_RECIPES;
+  const recipesWithStockStatus = recipeSource.map((recipe, idx) => {
     const missing = [];
     const available = [];
+    const ingredientes = recipe.ingredientes || [];
     
-    recipe.ingredientes.forEach(ingName => {
+    ingredientes.forEach(ingName => {
       const status = getIngredientStockStatus(ingName);
       if (status.available) {
         available.push({ name: ingName, product: status.stockProduct });
@@ -137,6 +86,7 @@ export default function Recetas({ products, onConsumeMultiple, showToast, house,
 
     return {
       ...recipe,
+      id: recipe.id || idx + 1,
       missing,
       available,
       hasAll: missing.length === 0
@@ -203,9 +153,9 @@ export default function Recetas({ products, onConsumeMultiple, showToast, house,
         <div className="flex gap-8">
           <span style={{ fontSize: '20px' }}>🤖</span>
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent)' }}>Firebase Vertex AI integration</div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent)' }}>Gemini AI · Recetas inteligentes</div>
             <div style={{ fontSize: '13px', color: 'var(--text2)', marginTop: '2px' }}>
-              La IA analiza el inventario real y crea sugerencias o planes semanales dinámicos para optimizar el consumo de alimentos y evitar desperdicios.
+              La IA analiza tu stock real y genera recetas o planes semanales para aprovechar al máximo los ingredientes.
             </div>
           </div>
         </div>
@@ -226,7 +176,7 @@ export default function Recetas({ products, onConsumeMultiple, showToast, house,
           {loadingRecipes ? (
             <div className="ai-thinking" style={{ justifyContent: 'center', padding: '40px' }}>
               <div className="dots"><div className="dot"></div><div className="dot"></div><div className="dot"></div></div>
-              <span>Vertex AI buscando recetas óptimas...</span>
+              <span>Gemini buscando recetas con tu stock...</span>
             </div>
           ) : (
             <div className="grid-3">
@@ -275,7 +225,7 @@ export default function Recetas({ products, onConsumeMultiple, showToast, house,
           {loadingPlan ? (
             <div className="ai-thinking" style={{ justifyContent: 'center', padding: '40px' }}>
               <div className="dots"><div className="dot"></div><div className="dot"></div><div className="dot"></div></div>
-              <span>Vertex AI estructurando tu menú balanceado semanal...</span>
+              <span>Gemini generando tu menú semanal balanceado...</span>
             </div>
           ) : !currentMealPlan ? (
             <div className="card" style={{ textAlign: 'center', padding: '50px 20px', borderStyle: 'dashed', borderWidth: '2px' }}>

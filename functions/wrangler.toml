@@ -1,0 +1,11 @@
+name = "littlecheft"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[ai]
+binding = "AI"
+
+[vars]
+# GEMINI_API_KEY se configura como secret (npx wrangler secret put GEMINI_API_KEY)
+VAPID_PUBLIC_KEY = "BE7SWh5rK8HZVQuxiyCmcRjeY3FCSackkJBx3ggR1fR9YSfo3T0GQ0dndGl7gQj7OGfygYdT2Go7ibUjhgkPrl8"
+PUSH_SUBJECT = "mailto:joaquinuchagallo@gmail.com"

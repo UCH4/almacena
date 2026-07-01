@@ -1,266 +1,61 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  signOut 
-} from 'firebase/auth';
+import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileTabs from './components/MobileTabs';
 import Login from './components/Login';
 import HouseSetup from './components/HouseSetup';
+import ProfileSetup from './components/ProfileSetup';
 import Dashboard from './pages/Dashboard';
 import Compras from './pages/Compras';
 import Stock from './pages/Stock';
 import Gastos from './pages/Gastos';
 import Recetas from './pages/Recetas';
 import Notificaciones from './pages/Notificaciones';
-import { dbProvider, isFirebaseActive } from './db/dbProvider';
-import { auth, googleProvider } from './db/firebase';
+import Actividad from './pages/Actividad';
+import UpdateBanner from './components/UpdateBanner';
+import ErrorBoundary from './components/ErrorBoundary';
+import ConnectivityIndicator from './components/ConnectivityIndicator';
+import { dbProvider } from './db/dbProvider';
+import { useToast } from './hooks/useToast';
+import { useAuth } from './hooks/useAuth';
+import { useHouse } from './hooks/useHouse';
+import { useDataSync } from './hooks/useDataSync';
+import { useBalances } from './hooks/useBalances';
+import { usePushInit } from './hooks/usePushInit';
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
-  
-  // Estados de Autenticación y Hogar
-  const [user, setUser] = useState(null);
-  const [house, setHouse] = useState(null);
-  const [loadingAuth, setLoadingAuth] = useState(isFirebaseActive);
-  const [loginError, setLoginError] = useState('');
-
-  // Estados de los datos sync
-  const [purchases, setPurchases] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [balances, setBalances] = useState({
-    net: { fromUser: 'S', toUser: 'T', amount: 0, formattedAmount: '$0', fromName: '', toName: '' },
-    summary: { totalPaidT: 0, totalPaidS: 0, totalShouldPayT: 0, totalShouldPayS: 0 }
-  });
-  
-  const [toasts, setToasts] = useState([]);
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-  // 1. ESCUCHAR ESTADO DE AUTENTICACIÓN (SI FIREBASE ESTÁ ACTIVO)
-  useEffect(() => {
-    if (!isFirebaseActive) {
-      // Modo local: simular usuario autenticado Tomas
-      setUser({
-        uid: 'T',
-        displayName: 'Tomas',
-        email: 'tomas@example.com',
-        photoURL: ''
-      });
-      setHouse({
-        id: 'local_house',
-        name: 'Casa Tomas (Local)',
-        inviteCode: 'LOCAL',
-        members: ['T', 'S'],
+  const { toasts, showToast } = useToast();
+  const { user, setUser, loadingAuth, loginError, handleLogin, handleLogout } = useAuth(showToast);
+  const { house, setHouse, userHouses, inviteCode, handleCreateHouse, handleCloseInviteModal, handleJoinHouse, handleLeaveHouse, handleSwitchHouse } = useHouse(user, showToast);
+  const { purchases, products, notifications } = useDataSync(house?.id, showToast);
+  const { balances } = useBalances(house, purchases, user?.uid);
+  usePushInit(house?.id, user?.uid);
+
+  const handleSaveProfile = async (nickname, emoji, birthDate) => {
+    if (!user) return;
+    const age = birthDate ? Math.floor((new Date() - new Date(birthDate)) / 31557600000) : null;
+    const profileData = { nickname, emoji };
+    if (birthDate) profileData.birthDate = birthDate;
+    if (age) profileData.age = age;
+    await dbProvider.saveUserProfile(user.uid, profileData);
+    if (house) {
+      await dbProvider.updateMemberInfo(house.id, user.uid, { nickname, emoji, age });
+      setHouse(prev => ({
+        ...prev,
         membersInfo: {
-          'T': { name: 'Tomas' },
-          'S': { name: 'Hermana' }
-        },
-        categories: ['lácteos', 'carnes', 'verduras', 'despensa', 'bebidas', 'limpieza', 'perfumería']
-      });
-      setLoadingAuth(false);
-      return;
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoadingAuth(true);
-      if (firebaseUser) {
-        // Guardar/Actualizar perfil de usuario básico en Firestore
-        await dbProvider.saveUserProfile(firebaseUser.uid, {
-          displayName: firebaseUser.displayName,
-          email: firebaseUser.email,
-          photoURL: firebaseUser.photoURL
-        });
-
-        // Obtener el hogar activo del usuario
-        const profile = await dbProvider.getUserProfile(firebaseUser.uid);
-        setUser({
-          uid: firebaseUser.uid,
-          displayName: firebaseUser.displayName,
-          email: firebaseUser.email,
-          photoURL: firebaseUser.photoURL,
-          ...profile
-        });
-
-        if (profile?.activeHouseId) {
-          const houseData = await dbProvider.getHouse(profile.activeHouseId);
-          setHouse(houseData);
-        } else {
-          setHouse(null); // Debe crear o unirse a una casa
+          ...prev.membersInfo,
+          [user.uid]: { ...prev.membersInfo[user.uid], nickname, emoji, age, name: nickname }
         }
-      } else {
-        setUser(null);
-        setHouse(null);
-      }
-      setLoadingAuth(false);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  // 2. SUBSCRIPCIONES A FIRESTORE (CUANDO HAY UNA CASA ACTIVA)
-  useEffect(() => {
-    if (!house?.id) return;
-
-    showToast(`🏡 Cargando datos de: ${house.name}`, 'info');
-
-    // Suscribirse a compras
-    const unsubPurchases = dbProvider.subscribeToPurchases(house.id, (pList) => {
-      setPurchases(pList);
-    });
-
-    // Suscribirse a productos
-    const unsubProducts = dbProvider.subscribeToProducts(house.id, (pList) => {
-      setProducts(pList);
-    });
-
-    // Suscribirse a notificaciones
-    const unsubNotifs = dbProvider.subscribeToNotifications(house.id, (nList) => {
-      setNotifications(nList);
-    });
-
-    return () => {
-      unsubPurchases();
-      unsubProducts();
-      unsubNotifs();
-    };
-  }, [house?.id]);
-
-  // 3. ACTUALIZAR BALANCES CUANDO CAMBIAN LAS COMPRAS O LA CASA
-  useEffect(() => {
-    if (!house) return;
-    
-    // Motor de cálculo financiero
-    const calculateBalances = () => {
-      const uids = house.members;
-      const uidT = user?.uid || 'T'; // El usuario actual
-      const uidS = uids.find(uid => uid !== uidT) || 'S'; // El acompañante
-
-      let totalPaidT = 0;
-      let totalPaidS = 0;
-      let totalShouldPayT = 0;
-      let totalShouldPayS = 0;
-      let settlementT_to_S = 0;
-      let settlementS_to_T = 0;
-
-      purchases.forEach(p => {
-        if (p.isSettlement) {
-          if (p.quien === uidT) {
-            settlementT_to_S += p.total;
-          } else if (p.quien === uidS) {
-            settlementS_to_T += p.total;
-          }
-        } else {
-          if (p.estado === 'confirmada') {
-            if (p.quien === uidT) totalPaidT += p.total;
-            if (p.quien === uidS) totalPaidS += p.total;
-
-            p.items.forEach(item => {
-              const cost = item.precio * item.qty;
-              const consumers = item.consumidores || [];
-              if (item.shared || (consumers.includes(uidT) && consumers.includes(uidS))) {
-                totalShouldPayT += cost / 2;
-                totalShouldPayS += cost / 2;
-              } else {
-                if (consumers.includes(uidT)) totalShouldPayT += cost;
-                if (consumers.includes(uidS)) totalShouldPayS += cost;
-              }
-            });
-          }
-        }
-      });
-
-      const netBalanceT = (totalPaidT - totalShouldPayT) + (settlementT_to_S - settlementS_to_T);
-
-      // Si netBalanceT > 0, Sofia (S) debe a Tomas (T).
-      // Si netBalanceT < 0, Tomas (T) debe a Sofia (S).
-      const fromUser = netBalanceT < 0 ? uidT : uidS;
-      const toUser = netBalanceT < 0 ? uidS : uidT;
-      const amount = Math.abs(netBalanceT);
-
-      const fromName = fromUser === uidT ? 'Vos' : (house.membersInfo[fromUser]?.name || 'Compañero');
-      const toName = toUser === uidT ? 'Vos' : (house.membersInfo[toUser]?.name || 'Compañero');
-
-      setBalances({
-        net: {
-          fromUser,
-          toUser,
-          fromName,
-          toName,
-          amount: Math.round(amount * 100) / 100,
-          formattedAmount: `$${Math.round(amount).toLocaleString('es-AR')}`
-        },
-        summary: {
-          totalPaidT: Math.round(totalPaidT),
-          totalPaidS: Math.round(totalPaidS),
-          totalShouldPayT: Math.round(totalShouldPayT),
-          totalShouldPayS: Math.round(totalShouldPayS)
-        }
-      });
-    };
-
-    calculateBalances();
-  }, [purchases, house, user?.uid]);
-
-  // Toast System
-  const showToast = (msg, type = 'info') => {
-    const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, msg, type }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 3500);
-  };
-
-  // Google OAuth Log-In
-  const handleLogin = async () => {
-    setLoginError('');
-    try {
-      await signInWithPopup(auth, googleProvider);
-      showToast('🔑 Sesión iniciada con Google', 'success');
-    } catch (err) {
-      console.error(err);
-      setLoginError('No se pudo iniciar sesión. Verificá tu conexión.');
+      }));
     }
+    setUser(prev => ({ ...prev, ...profileData }));
+    const ageText = age ? ` (${age} años)` : '';
+    showToast(`✅ Perfil guardado como ${emoji} ${nickname}${ageText}`, 'success');
   };
 
-  // Log-out
-  const handleLogout = async () => {
-    if (isFirebaseActive) {
-      await signOut(auth);
-    }
-    setUser(null);
-    setHouse(null);
-    showToast('🔑 Sesión cerrada', 'info');
-  };
-
-  // Gestión de Casas
-  const handleCreateHouse = async (houseName) => {
-    if (!user) return;
-    const newHouse = await dbProvider.createHouse(
-      user.uid, 
-      houseName, 
-      user.displayName, 
-      user.photoURL
-    );
-    setHouse(newHouse);
-    showToast(`🏡 Casa "${houseName}" creada.`, 'success');
-  };
-
-  const handleJoinHouse = async (inviteCode) => {
-    if (!user) return;
-    const joinedHouse = await dbProvider.joinHouse(
-      user.uid, 
-      inviteCode, 
-      user.displayName, 
-      user.photoURL
-    );
-    setHouse(joinedHouse);
-    showToast(`🏡 Te uniste a la casa: ${joinedHouse.name}`, 'success');
-  };
-
-  // Carga de compra confirmada
   const handleConfirmPurchase = async (purchaseData) => {
     try {
       await dbProvider.addPurchase(house.id, purchaseData);
@@ -270,7 +65,24 @@ export default function App() {
     }
   };
 
-  // Consumir stock
+  const handleEditPurchase = async (purchaseId, data) => {
+    try {
+      await dbProvider.updatePurchase(house.id, purchaseId, data);
+      showToast('✅ Compra actualizada', 'success');
+    } catch (err) {
+      showToast(`❌ Error al editar compra: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeletePurchase = async (purchaseId) => {
+    try {
+      await dbProvider.deletePurchase(house.id, purchaseId);
+      showToast('✅ Compra anulada', 'success');
+    } catch (err) {
+      showToast(`❌ Error al anular compra: ${err.message}`, 'error');
+    }
+  };
+
   const handleConsumeProduct = async (id, amount) => {
     try {
       await dbProvider.consumeProduct(house.id, id, amount);
@@ -280,7 +92,6 @@ export default function App() {
     }
   };
 
-  // Consumir múltiples ingredientes (de Recetas)
   const handleConsumeMultiple = async (consumptions) => {
     try {
       await dbProvider.consumeMultipleProducts(house.id, consumptions);
@@ -290,7 +101,6 @@ export default function App() {
     }
   };
 
-  // Agregar producto manualmente
   const handleAddProduct = async (productData) => {
     try {
       await dbProvider.addProduct(house.id, productData);
@@ -300,33 +110,41 @@ export default function App() {
     }
   };
 
-  // Saldar cuentas
+  const handleEditProduct = async (productId, data) => {
+    try {
+      await dbProvider.updateProduct(house.id, productId, data);
+      showToast('✅ Producto actualizado', 'success');
+    } catch (err) {
+      showToast(`❌ Error al editar producto: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeleteProduct = async (productId) => {
+    try {
+      await dbProvider.deleteProduct(house.id, productId);
+      showToast('✅ Producto eliminado', 'success');
+    } catch (err) {
+      showToast(`❌ Error al eliminar producto: ${err.message}`, 'error');
+    }
+  };
+
   const handleSaldarDeudas = async () => {
     try {
-      const uids = house.members;
-      const uidT = user.uid;
-      const uidS = uids.find(uid => uid !== uidT);
-
       const payerUid = balances.net.fromUser;
       const receiverUid = balances.net.toUser;
-      const payerName = payerUid === uidT ? user.displayName : (house.membersInfo[payerUid]?.name || 'Miembro');
-      const receiverName = receiverUid === uidT ? user.displayName : (house.membersInfo[receiverUid]?.name || 'Miembro');
-
-      await dbProvider.saldarDeudas(
-        house.id, 
-        balances.net.amount, 
-        payerUid, 
-        receiverUid, 
-        payerName, 
-        receiverName
-      );
+      if (!payerUid || !receiverUid) {
+        showToast('⚠️ No hay deudas que saldar', 'info');
+        return;
+      }
+      const payerName = payerUid === user.uid ? user.displayName : (house.membersInfo[payerUid]?.name || 'Miembro');
+      const receiverName = receiverUid === user.uid ? user.displayName : (house.membersInfo[receiverUid]?.name || 'Miembro');
+      await dbProvider.saldarDeudas(house.id, balances.net.amount, payerUid, receiverUid, payerName, receiverName);
       showToast('✅ Balance liquidado exitosamente', 'success');
     } catch (err) {
       showToast('❌ Error al saldar deudas', 'error');
     }
   };
 
-  // Marcar notificaciones leídas
   const handleMarkAllRead = async () => {
     try {
       await dbProvider.markNotificationsRead(house.id, notifications);
@@ -336,7 +154,6 @@ export default function App() {
     }
   };
 
-  // Actualizar categorías de la casa
   const handleUpdateCategories = async (newCategories) => {
     try {
       await dbProvider.updateHouseCategories(house.id, newCategories);
@@ -347,7 +164,6 @@ export default function App() {
     }
   };
 
-  // Actualizar plan alimentario de la casa
   const handleUpdateMealPlan = async (newMealPlan) => {
     try {
       await dbProvider.saveMealPlan(house.id, newMealPlan);
@@ -358,7 +174,6 @@ export default function App() {
     }
   };
 
-  // Visualizar detalle de una compra
   const handleViewPurchaseDetail = (purchase) => {
     setSelectedPurchase(purchase);
     setIsDetailOpen(true);
@@ -369,7 +184,6 @@ export default function App() {
     setIsDetailOpen(false);
   };
 
-  // Carga de inicialización
   if (loadingAuth) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text2)' }}>
@@ -381,17 +195,25 @@ export default function App() {
     );
   }
 
-  // Si no está autenticado, mostrar Login
   if (!user) {
     return <Login onLogin={handleLogin} error={loginError} />;
   }
 
-  // Si no tiene casa activa, mostrar HouseSetup
+  if (!user.nickname) {
+    return (
+      <ProfileSetup
+        user={user}
+        onSave={handleSaveProfile}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   if (!house) {
     return (
-      <HouseSetup 
-        onCreateHouse={handleCreateHouse} 
-        onJoinHouse={handleJoinHouse} 
+      <HouseSetup
+        onCreateHouse={handleCreateHouse}
+        onJoinHouse={handleJoinHouse}
         onLogout={handleLogout}
         user={user}
       />
@@ -402,94 +224,146 @@ export default function App() {
   const pendingPurchases = purchases.filter(p => p.estado === 'pendiente').length;
 
   return (
+    <ErrorBoundary>
     <div className="app-container">
-      {/* SIDEBAR NAVIGATION (DESKTOP) */}
-      <Sidebar 
-        activePage={activePage} 
-        setActivePage={setActivePage} 
+      <ConnectivityIndicator />
+      <Sidebar
+        activePage={activePage}
+        setActivePage={setActivePage}
         unreadNotifs={unreadNotifs}
         pendingPurchases={pendingPurchases}
-        currentUser={user.displayName}
+        currentUser={user.nickname + (user.emoji ? ' ' + user.emoji : '')}
+        userEmoji={user.emoji}
+        inviteCode={house?.inviteCode}
+        onCopyInvite={() => { navigator.clipboard?.writeText(house?.inviteCode || ''); showToast('📋 Código copiado', 'success'); }}
+        house={house}
+        onLeaveHouse={handleLeaveHouse}
+        user={user}
+        userHouses={userHouses}
+        onSwitchHouse={handleSwitchHouse}
+        onJoinHouse={handleJoinHouse}
+        onLogout={handleLogout}
       />
 
-      {/* MOBILE BOTTOM NAVIGATION */}
-      <MobileTabs 
-        activePage={activePage} 
-        setActivePage={setActivePage} 
+      <MobileTabs
+        activePage={activePage}
+        setActivePage={setActivePage}
         pendingPurchases={pendingPurchases}
       />
 
-      {/* MAIN CONTENT AREA */}
       <main>
         {activePage === 'dashboard' && (
-          <Dashboard 
-            purchases={purchases} 
-            products={products} 
-            balances={balances} 
+          <Dashboard
+            purchases={purchases}
+            products={products}
+            balances={balances}
             onOpenNewPurchase={() => setActivePage('compras')}
             onViewPurchaseDetail={handleViewPurchaseDetail}
             activePage={activePage}
             setActivePage={setActivePage}
+            house={house}
+            user={user}
           />
         )}
-
         {activePage === 'compras' && (
-          <Compras 
-            purchases={purchases} 
+          <Compras
+            purchases={purchases}
             onAddPurchase={handleConfirmPurchase}
+            onEditPurchase={handleEditPurchase}
+            onDeletePurchase={handleDeletePurchase}
             onViewPurchaseDetail={handleViewPurchaseDetail}
+            house={house}
+            user={user}
           />
         )}
-
         {activePage === 'stock' && (
-          <Stock 
-            products={products} 
+          <Stock
+            products={products}
             onAddProduct={handleAddProduct}
+            onEditProduct={handleEditProduct}
+            onDeleteProduct={handleDeleteProduct}
             onConsumeProduct={handleConsumeProduct}
             house={house}
             onUpdateCategories={handleUpdateCategories}
           />
         )}
-
         {activePage === 'gastos' && (
-          <Gastos 
-            purchases={purchases} 
-            balances={balances} 
+          <Gastos
+            purchases={purchases}
+            products={products}
+            balances={balances}
             onSaldarDeudas={handleSaldarDeudas}
             showToast={showToast}
             house={house}
-            currentUserUid={user.uid}
+            user={user}
           />
         )}
-
         {activePage === 'recetas' && (
-          <Recetas 
-            products={products} 
+          <Recetas
+            products={products}
             onConsumeMultiple={handleConsumeMultiple}
             showToast={showToast}
             house={house}
             onUpdateMealPlan={handleUpdateMealPlan}
           />
         )}
-
         {activePage === 'notificaciones' && (
-          <Notificaciones 
-            notifications={notifications} 
+          <Notificaciones
+            notifications={notifications}
             onMarkAllRead={handleMarkAllRead}
+            house={house}
+            user={user}
           />
+        )}
+        {activePage === 'actividad' && (
+          <Actividad house={house} />
         )}
       </main>
 
-      {/* TOAST SYSTEM */}
-      <div id="toasts">
+      <div id="toasts" aria-live="polite">
         {toasts.map(t => (
-          <div className={`toast ${t.type}`} key={t.id}>
+          <div className={`toast ${t.type}`} key={t.id} role="alert">
             <span>{t.msg}</span>
           </div>
         ))}
       </div>
 
-      {/* MODAL DETALLE DE COMPRA */}
+      <UpdateBanner />
+
+      {inviteCode && (
+        <div className="modal-overlay open" onClick={(e) => e.target.classList.contains('modal-overlay') && handleCloseInviteModal()}>
+          <div className="modal" style={{ maxWidth: '400px' }}>
+            <div className="modal-header">
+              <div className="modal-title">🏡 Casa creada</div>
+              <button className="btn-close" onClick={handleCloseInviteModal}>×</button>
+            </div>
+            <div className="modal-body" style={{ textAlign: 'center', padding: '24px' }}>
+              <p style={{ color: 'var(--text2)', marginBottom: '16px' }}>
+                Compartí este código para que otros miembros se unan:
+              </p>
+              <div
+                style={{
+                  fontSize: '36px', fontWeight: 800, letterSpacing: '8px',
+                  fontFamily: 'monospace', color: 'var(--accent)',
+                  background: 'var(--surface2)', padding: '20px',
+                  borderRadius: '12px', marginBottom: '16px',
+                  cursor: 'pointer', userSelect: 'all'
+                }}
+                onClick={() => { navigator.clipboard?.writeText(inviteCode); showToast('📋 Copiado', 'success'); }}
+              >
+                {inviteCode}
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text3)' }}>
+                Tocá el código para copiarlo automáticamente
+              </p>
+            </div>
+            <div className="modal-footer" style={{ justifyContent: 'center' }}>
+              <button className="btn btn-primary" onClick={handleCloseInviteModal}>Listo, ya lo copié</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isDetailOpen && selectedPurchase && (
         <div className="modal-overlay open" onClick={(e) => e.target.classList.contains('modal-overlay') && handleCloseDetail()}>
           <div className="modal">
@@ -502,7 +376,7 @@ export default function App() {
             <div className="modal-body">
               <div className="flex-between mb-16">
                 <span className={`badge ${selectedPurchase.quien === user.uid ? 'badge-blue' : 'badge-purple'}`}>
-                  Pagado por {house.membersInfo[selectedPurchase.quien]?.name || 'Miembro'}
+                  Pagado por {(house.membersInfo[selectedPurchase.quien]?.emoji || '') + (house.membersInfo[selectedPurchase.quien]?.name || 'Miembro')}
                 </span>
                 <span style={{ fontSize: '16px', fontWeight: 700 }}>
                   Total: ${selectedPurchase.total.toLocaleString('es-AR')}
@@ -528,16 +402,16 @@ export default function App() {
                       <tbody>
                         {selectedPurchase.items.map((item, idx) => {
                           const cost = item.precio * item.qty;
-                          const hasT = item.consumidores.includes(user.uid);
-                          const siblingUid = house.members.find(uid => uid !== user.uid);
-                          const hasS = siblingUid ? item.consumidores.includes(siblingUid) : false;
-                          const isShared = item.shared || (hasT && hasS);
+                          const hasCurrent = item.consumidores.includes(user.uid);
+                          const otherUid = house.members.find(uid => uid !== user.uid);
+                          const hasOther = otherUid ? item.consumidores.includes(otherUid) : false;
+                          const isShared = item.shared || (hasCurrent && hasOther);
                           return (
                             <tr key={idx}>
                               <td>
                                 <div className="product-name">{item.nombre}</div>
                                 <div style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                                  Consumidores: {item.consumidores.map(uid => house.membersInfo[uid]?.name || 'Miembro').join(', ')}
+                                  Consumidores: {item.consumidores.map(uid => (house.membersInfo[uid]?.emoji || '') + (house.membersInfo[uid]?.name || 'Miembro')).join(', ')}
                                 </div>
                               </td>
                               <td>{item.qty} {item.unit}</td>
@@ -553,18 +427,13 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
-
                   <hr className="sep" />
-                  
                   <div className="grid-2 mt-12">
                     <div className="card" style={{ background: 'var(--surface2)', padding: '14px' }}>
                       <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Gastos compartidos en esta compra</div>
                       <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--green)', marginTop: '4px' }}>
                         ${selectedPurchase.items
-                          .filter(i => {
-                            const c = i.consumidores || [];
-                            return i.shared || (c.includes(user.uid) && c.some(uid => uid !== user.uid));
-                          })
+                          .filter(i => { const c = i.consumidores || []; return i.shared || (c.includes(user.uid) && c.some(uid => uid !== user.uid)); })
                           .reduce((acc, i) => acc + (i.precio * i.qty), 0)
                           .toLocaleString('es-AR')}
                       </div>
@@ -573,10 +442,7 @@ export default function App() {
                       <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Gastos exclusivos en esta compra</div>
                       <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--orange)', marginTop: '4px' }}>
                         ${selectedPurchase.items
-                          .filter(i => {
-                            const c = i.consumidores || [];
-                            return !i.shared && !(c.includes(user.uid) && c.some(uid => uid !== user.uid));
-                          })
+                          .filter(i => { const c = i.consumidores || []; return !i.shared && !(c.includes(user.uid) && c.some(uid => uid !== user.uid)); })
                           .reduce((acc, i) => acc + (i.precio * i.qty), 0)
                           .toLocaleString('es-AR')}
                       </div>
@@ -592,5 +458,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   );
 }

@@ -7,8 +7,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      strategies: 'injectManifest',
+      srcDir: 'public',
+      filename: 'sw.js',
       includeAssets: ['favicon.ico', 'robots.txt'],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,json}'],
+        globIgnores: ['sw.js', 'sw.mjs']
+      },
       manifest: {
         name: 'AlacenaApp — Compartida',
         short_name: 'AlacenaApp',

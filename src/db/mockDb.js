@@ -1,3 +1,5 @@
+import { guessCategory } from '../services/categories';
+
 // Datos semilla iniciales (se usarán si no hay nada en localStorage)
 const INITIAL_PURCHASES = [
   {
@@ -65,6 +67,34 @@ const INITIAL_PURCHASES = [
     ],
     total: 2610,
     estado: 'pendiente'
+  },
+  {
+    id: 6,
+    fecha: '15/06/2026',
+    comercio: 'Jumbo',
+    quien: 'S',
+    items: [
+      { nombre: 'Cerveza Rubia 1L', qty: 6, unit: 'un', precio: 2100, consumidores: ['T', 'S'], shared: true },
+      { nombre: 'Gaseosa Cola 2.25L', qty: 2, unit: 'un', precio: 3100, consumidores: ['T', 'S'], shared: true },
+      { nombre: 'Vino Malbec 750ml', qty: 1, unit: 'un', precio: 4800, consumidores: ['S'], shared: false },
+      { nombre: 'Papas Fritas 250g', qty: 3, unit: 'un', precio: 1950, consumidores: ['T', 'S'], shared: true },
+    ],
+    total: 30150,
+    estado: 'confirmada'
+  },
+  {
+    id: 7,
+    fecha: '20/06/2026',
+    comercio: 'ChangoMás',
+    quien: 'T',
+    items: [
+      { nombre: 'Leche Descremada 1L', qty: 4, unit: 'un', precio: 1550, consumidores: ['T', 'S'], shared: true },
+      { nombre: 'Detergente 500ml', qty: 1, unit: 'un', precio: 1250, consumidores: ['T', 'S'], shared: true },
+      { nombre: 'Lavandina 2L', qty: 1, unit: 'un', precio: 1100, consumidores: ['T', 'S'], shared: true },
+      { nombre: 'Queso Rallado 120g', qty: 2, unit: 'un', precio: 980, consumidores: ['T'], shared: false },
+    ],
+    total: 11470,
+    estado: 'confirmada'
   }
 ];
 
@@ -80,7 +110,13 @@ const INITIAL_PRODUCTS = [
   { id: 9, nombre: 'Queso cremoso 250g', cat: 'lácteos', unit: 'unidades', stock: 1, minStock: 1, consumidores: ['T', 'S'] },
   { id: 10, nombre: 'Manteca 200g', cat: 'lácteos', unit: 'unidades', stock: 1, minStock: 1, consumidores: ['T', 'S'] },
   { id: 11, nombre: 'Tomate perita lata', cat: 'despensa', unit: 'unidades', stock: 4, minStock: 2, consumidores: ['T', 'S'] },
-  { id: 12, nombre: 'Proteína whey (T)', cat: 'despensa', unit: 'unidades', stock: 1, minStock: 1, consumidores: ['T'] }
+  { id: 12, nombre: 'Proteína whey (T)', cat: 'despensa', unit: 'unidades', stock: 1, minStock: 1, consumidores: ['T'] },
+  { id: 13, nombre: 'Cerveza Rubia 1L', cat: 'bebidas', unit: 'unidades', stock: 4, minStock: 3, consumidores: ['T', 'S'] },
+  { id: 14, nombre: 'Gaseosa Cola 2.25L', cat: 'bebidas', unit: 'unidades', stock: 1, minStock: 2, consumidores: ['T', 'S'] },
+  { id: 15, nombre: 'Vino Malbec 750ml', cat: 'bebidas', unit: 'unidades', stock: 2, minStock: 1, consumidores: ['S'] },
+  { id: 16, nombre: 'Agua Mineral 2L', cat: 'bebidas', unit: 'unidades', stock: 3, minStock: 2, consumidores: ['T', 'S'] },
+  { id: 17, nombre: 'Detergente 500ml', cat: 'limpieza', unit: 'unidades', stock: 1, minStock: 1, consumidores: ['T', 'S'] },
+  { id: 18, nombre: 'Lavandina 2L', cat: 'limpieza', unit: 'unidades', stock: 2, minStock: 1, consumidores: ['T', 'S'] }
 ];
 
 const INITIAL_NOTIFICATIONS = [
@@ -88,22 +124,75 @@ const INITIAL_NOTIFICATIONS = [
   { id: 2, tipo: 'stock', icon: '⚠️', titulo: 'Stock bajo: Leche entera', msg: 'Quedan 2 unidades. El mínimo configurado es 3.', time: 'Hace 3 horas', leida: false },
   { id: 3, tipo: 'compra', icon: '🛒', titulo: 'Nueva compra cargada', msg: 'Tomas cargó una compra de $18.470 en Carrefour.', time: 'Hace 5 horas', leida: false },
   { id: 4, tipo: 'deuda', icon: '💰', titulo: 'Deuda pendiente', msg: 'Tu hermana tiene $4.275 pendientes desde hace 8 días.', time: 'Ayer', leida: true },
-  { id: 5, tipo: 'compra', icon: '🛒', titulo: 'Nueva compra cargada', msg: 'Tu hermana cargó una compra de $14.480 en Coto.', time: 'Hace 4 días', leida: true }
+  { id: 5, tipo: 'compra', icon: '🛒', titulo: 'Nueva compra cargada', msg: 'Tu hermana cargó una compra de $14.480 en Coto.', time: 'Hace 4 días', leida: true },
+  { id: 6, tipo: 'stock', icon: '⚠️', titulo: 'Stock bajo: Gaseosa Cola', msg: 'Queda 1 unidad. El mínimo configurado es 2.', time: 'Hace 1 hora', leida: false },
+  { id: 7, tipo: 'compra', icon: '🛒', titulo: 'Compra de Jumbo pendiente', msg: 'Compartite una compra de $30.150 en Jumbo el 15/06.', time: 'Hace 2 días', leida: false }
 ];
 
 // Datos del ticket Carrefour simulados (con descuento del 15% de Mercado Pago prorrateado)
 export const CARREFOUR_RECEIPT_ITEMS = [
-  { nombre: 'Rapiditas Clásicas Bimbo 275g', qty: 2, unit: 'un', precio: 1717 }, // (8078 - 4039) * 0.85 = 3433.15 / 2 = 1716.5 -> 1717
-  { nombre: 'Fideos Tallarines Don Vicente', qty: 1, unit: 'un', precio: 3064 }, // 3605 * 0.85 = 3064.25
-  { nombre: 'Salsa Filetto Arcor Doypack', qty: 1, unit: 'un', precio: 1172 }, // 1379 * 0.85 = 1172.15
-  { nombre: 'Puré de Papas Carrefour 100g', qty: 1, unit: 'un', precio: 1012 }, // 1190 * 0.85 = 1011.5
-  { nombre: 'Fideos Ramen Carne Arcor', qty: 1, unit: 'un', precio: 1359 }, // 1599 * 0.85 = 1359.15
-  { nombre: 'Medallones Carne Vacuna x2', qty: 1, unit: 'un', precio: 1832 }, // 2155 * 0.85 = 1831.75
-  { nombre: 'Lavavajilla Limón Carrefour', qty: 1, unit: 'un', precio: 1658 }, // (2050 - 100) * 0.85 = 1657.5
-  { nombre: 'Acondicionador Balance Sedal', qty: 1, unit: 'un', precio: 1412 }, // (5539 - 3877.3) * 0.85 = 1412.4
-  { nombre: 'Shampoo Balance Sedal 340cc', qty: 1, unit: 'un', precio: 4751 }, // 5589 * 0.85 = 4750.65
-  { nombre: 'Jabón Tocador Blanco Dove', qty: 1, unit: 'un', precio: 2138 }, // 2515 * 0.85 = 2137.75
-  { nombre: 'Sorrentinos Ricota Jamón Bulnes', qty: 1, unit: 'un', precio: 3477 } // 4090 * 0.85 = 3476.5
+  { nombre: 'Rapiditas Clásicas Bimbo 275g', qty: 2, unit: 'un', precio: 1717 },
+  { nombre: 'Fideos Tallarines Don Vicente', qty: 1, unit: 'un', precio: 3064 },
+  { nombre: 'Salsa Filetto Arcor Doypack', qty: 1, unit: 'un', precio: 1172 },
+  { nombre: 'Puré de Papas Carrefour 100g', qty: 1, unit: 'un', precio: 1012 },
+  { nombre: 'Fideos Ramen Carne Arcor', qty: 1, unit: 'un', precio: 1359 },
+  { nombre: 'Medallones Carne Vacuna x2', qty: 1, unit: 'un', precio: 1832 },
+  { nombre: 'Lavavajilla Limón Carrefour', qty: 1, unit: 'un', precio: 1658 },
+  { nombre: 'Acondicionador Balance Sedal', qty: 1, unit: 'un', precio: 1412 },
+  { nombre: 'Shampoo Balance Sedal 340cc', qty: 1, unit: 'un', precio: 4751 },
+  { nombre: 'Jabón Tocador Blanco Dove', qty: 1, unit: 'un', precio: 2138 },
+  { nombre: 'Sorrentinos Ricota Jamón Bulnes', qty: 1, unit: 'un', precio: 3477 }
+];
+
+export const COTO_RECEIPT_ITEMS = [
+  { nombre: 'Arroz Largo Fino 1kg', qty: 2, unit: 'un', precio: 2250 },
+  { nombre: 'Fideos Spaghetti 500g', qty: 3, unit: 'un', precio: 1150 },
+  { nombre: 'Tomate Perita Lata 400g', qty: 4, unit: 'un', precio: 980 },
+  { nombre: 'Coca Cola 2.25L', qty: 2, unit: 'un', precio: 3200 },
+  { nombre: 'Pan Lactal 720g', qty: 1, unit: 'un', precio: 2850 },
+  { nombre: 'Queso Cremoso 250g', qty: 2, unit: 'un', precio: 3100 },
+  { nombre: 'Dulce de Leche 400g', qty: 1, unit: 'un', precio: 2500 },
+  { nombre: 'Galletitas Variedad x3', qty: 1, unit: 'un', precio: 1800 },
+  { nombre: 'Agua Mineral 2L', qty: 3, unit: 'un', precio: 850 }
+];
+
+export const DIA_RECEIPT_ITEMS = [
+  { nombre: 'Leche Entera 1L', qty: 3, unit: 'un', precio: 1650 },
+  { nombre: 'Yogur Bebible Frutilla', qty: 4, unit: 'un', precio: 750 },
+  { nombre: 'Huevos Blancos x12', qty: 1, unit: 'un', precio: 3800 },
+  { nombre: 'Harina 0000 1kg', qty: 1, unit: 'un', precio: 1200 },
+  { nombre: 'Aceite Girasol 1.5L', qty: 1, unit: 'un', precio: 2900 },
+  { nombre: 'Azúcar 1kg', qty: 2, unit: 'un', precio: 1400 },
+  { nombre: 'Sal Fina 500g', qty: 1, unit: 'un', precio: 450 },
+  { nombre: 'Café Molido 250g', qty: 1, unit: 'un', precio: 3200 },
+  { nombre: 'Té en Hebras x25', qty: 1, unit: 'un', precio: 1100 },
+  { nombre: 'Agua Mineral 2L', qty: 2, unit: 'un', precio: 900 },
+  { nombre: 'Jugo Naranja 1L', qty: 1, unit: 'un', precio: 1400 }
+];
+
+export const JUMBO_RECEIPT_ITEMS = [
+  { nombre: 'Cerveza Rubia 1L', qty: 6, unit: 'un', precio: 2100 },
+  { nombre: 'Vino Malbec 750ml', qty: 2, unit: 'un', precio: 4800 },
+  { nombre: 'Gaseosa Cola 2.25L', qty: 3, unit: 'un', precio: 3100 },
+  { nombre: 'Papas Fritas 250g', qty: 2, unit: 'un', precio: 1950 },
+  { nombre: 'Maní Salado 150g', qty: 1, unit: 'un', precio: 850 },
+  { nombre: 'Carne Vacuna Picada 1kg', qty: 1, unit: 'kg', precio: 7200 },
+  { nombre: 'Pollo Entero 2.5kg', qty: 1, unit: 'un', precio: 8500 },
+  { nombre: 'Helado 1Kg', qty: 1, unit: 'un', precio: 6500 },
+  { nombre: 'Shampoo Sedal 340cc', qty: 1, unit: 'un', precio: 3200 },
+  { nombre: 'Jabón Líquido 500ml', qty: 2, unit: 'un', precio: 1350 }
+];
+
+export const CHANGOMAS_RECEIPT_ITEMS = [
+  { nombre: 'Leche Descremada 1L', qty: 6, unit: 'un', precio: 1550 },
+  { nombre: 'Queso Rallado 120g', qty: 2, unit: 'un', precio: 980 },
+  { nombre: 'Fideos Mostachol 500g', qty: 4, unit: 'un', precio: 1050 },
+  { nombre: 'Salsa Pomarola 350g', qty: 3, unit: 'un', precio: 850 },
+  { nombre: 'Detergente 500ml', qty: 2, unit: 'un', precio: 1250 },
+  { nombre: 'Lavandina 2L', qty: 1, unit: 'un', precio: 1100 },
+  { nombre: 'Esponja Multiuso x5', qty: 1, unit: 'un', precio: 780 },
+  { nombre: 'Rollos Cocina x3', qty: 2, unit: 'un', precio: 1650 },
+  { nombre: 'Servilletas x200', qty: 1, unit: 'un', precio: 1200 }
 ];
 
 // Isomorphic storage fallback for Node.js / SSR testing
@@ -119,6 +208,9 @@ const storage = isBrowser ? window.localStorage : storageMock;
 
 class MockDb {
   constructor() {
+    this._purchaseListeners = [];
+    this._productListeners = [];
+    this._notificationListeners = [];
     this.initLocalStorage();
   }
 
@@ -140,25 +232,54 @@ class MockDb {
   }
 
   getProducts() {
-    return JSON.parse(storage.getItem('alacena_products'));
+    const list = JSON.parse(storage.getItem('alacena_products')) || [];
+    return list.filter(p => !p._deleted);
   }
 
   getNotifications() {
     return JSON.parse(storage.getItem('alacena_notifications'));
   }
 
+  // --- SUBSCRIPCIONES REACTIVAS ---
+  subscribeToPurchases(callback) {
+    callback(this.getPurchases());
+    this._purchaseListeners.push(callback);
+    return () => {
+      this._purchaseListeners = this._purchaseListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  subscribeToProducts(callback) {
+    callback(this.getProducts());
+    this._productListeners.push(callback);
+    return () => {
+      this._productListeners = this._productListeners.filter(cb => cb !== callback);
+    };
+  }
+
+  subscribeToNotifications(callback) {
+    callback(this.getNotifications());
+    this._notificationListeners.push(callback);
+    return () => {
+      this._notificationListeners = this._notificationListeners.filter(cb => cb !== callback);
+    };
+  }
+
   // --- MUTACIONES ---
   savePurchases(data) {
     storage.setItem('alacena_purchases', JSON.stringify(data));
+    this._purchaseListeners.forEach(cb => { try { cb(data); } catch(e) {} });
   }
 
   saveProducts(data) {
     storage.setItem('alacena_products', JSON.stringify(data));
+    this._productListeners.forEach(cb => { try { cb(data); } catch(e) {} });
     this.checkStockAlerts();
   }
 
   saveNotifications(data) {
     storage.setItem('alacena_notifications', JSON.stringify(data));
+    this._notificationListeners.forEach(cb => { try { cb(data); } catch(e) {} });
   }
 
   // --- COMPRAS ---
@@ -210,11 +331,11 @@ class MockDb {
         products.push({
           id: newId,
           nombre: item.nombre,
-          cat: this.guessCategory(item.nombre),
+          cat: guessCategory(item.nombre),
           unit: item.unit || 'unidades',
           stock: item.qty,
           minStock: 1,
-          consumidores: item.consumidores || ['T', 'S']
+          consumidores: item.consumidores || []
         });
       }
     });
@@ -222,14 +343,7 @@ class MockDb {
   }
 
   guessCategory(name) {
-    const n = name.toLowerCase();
-    if (n.includes('leche') || n.includes('yogur') || n.includes('queso') || n.includes('manteca') || n.includes('crema')) return 'lácteos';
-    if (n.includes('carne') || n.includes('milanesa') || n.includes('pollo') || n.includes('medallon')) return 'carnes';
-    if (n.includes('banana') || n.includes('manzana') || n.includes('tomate') || n.includes('papa') || n.includes('verdura')) return 'verduras';
-    if (n.includes('fideo') || n.includes('arroz') || n.includes('aceite') || n.includes('salsa') || n.includes('harina') || n.includes('lata') || n.includes('proteína') || n.includes('whey')) return 'despensa';
-    if (n.includes('detergente') || n.includes('esponja') || n.includes('limón') || n.includes('lavavajilla') || n.includes('limpieza')) return 'limpieza';
-    if (n.includes('shampoo') || n.includes('acondicionador') || n.includes('jabón') || n.includes('dove') || n.includes('sedal')) return 'perfumería';
-    return 'despensa';
+    return guessCategory(name);
   }
 
   // --- PRODUCTOS / STOCK ---
@@ -244,6 +358,24 @@ class MockDb {
     list.push(newProduct);
     this.saveProducts(list);
     return newProduct;
+  }
+
+  updateProduct(id, data) {
+    const list = this.getProducts();
+    const idx = list.findIndex(p => p.id === id);
+    if (idx === -1) throw new Error('Producto no encontrado');
+    list[idx] = { ...list[idx], ...data };
+    this.saveProducts(list);
+    return list[idx];
+  }
+
+  deleteProduct(id) {
+    const all = JSON.parse(storage.getItem('alacena_products')) || [];
+    const idx = all.findIndex(p => p.id === id);
+    if (idx === -1) throw new Error('Producto no encontrado');
+    all[idx] = { ...all[idx], _deleted: true };
+    this.saveProducts(all);
+    return true;
   }
 
   updateProductStock(id, newStock) {
@@ -273,7 +405,16 @@ class MockDb {
     throw new Error('Producto no encontrado');
   }
 
-  // --- ALERTAS DE STOCK BAJO ---
+  deletePurchase(id) {
+    const list = this.getPurchases();
+    const idx = list.findIndex(p => p.id === id);
+    if (idx === -1) throw new Error('Compra no encontrada');
+    list[idx].estado = 'anulada';
+    this.savePurchases(list);
+    return true;
+  }
+
+  // --- PRODUCTOS / STOCK ---
   checkStockAlerts() {
     const products = this.getProducts();
     const alerts = products.filter(p => p.stock <= p.minStock);
@@ -389,7 +530,7 @@ class MockDb {
       isSettlement: true,
       items: [
         {
-          nombre: `Pago de deuda neto (${bal.net.fromUser === 'S' ? 'Hermana' : 'Tomas'} -> ${bal.net.toUser === 'S' ? 'Hermana' : 'Tomas'})`,
+          nombre: 'Liquidación de balance',
           qty: 1,
           unit: 'transacción',
           precio: bal.net.amount,
@@ -410,13 +551,17 @@ class MockDb {
       tipo: 'deuda',
       icon: '💰',
       titulo: 'Deuda liquidada',
-      msg: `${bal.net.fromUser === 'S' ? 'Hermana' : 'Tomas'} saldó la deuda de $${Math.round(bal.net.amount).toLocaleString('es-AR')}.`,
+      msg: `Se saldó la deuda de $${Math.round(bal.net.amount).toLocaleString('es-AR')}.`,
       time: 'Ahora mismo',
       leida: false
     });
     this.saveNotifications(notifs);
 
     return settlement;
+  }
+
+  savePushSubscription(houseId, userId, subscription) {
+    storage.setItem(`alacena_push_${userId}`, JSON.stringify(subscription));
   }
 
   // --- NOTIFICACIONES ---

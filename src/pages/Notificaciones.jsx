@@ -1,6 +1,39 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { requestPermission, subscribeUser, unsubscribeUser, saveSubscriptionToFirestore, sendTestPush } from '../services/pushNotifications';
+import { dbProvider } from '../db/dbProvider';
 
-export default function Notificaciones({ notifications, onMarkAllRead }) {
+export default function Notificaciones({ notifications, onMarkAllRead, house, user }) {
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushStatus, setPushStatus] = useState('');
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      setPushEnabled(true);
+    }
+  }, []);
+
+  const handleTogglePush = async () => {
+    if (pushEnabled) {
+      await unsubscribeUser();
+      setPushEnabled(false);
+      setPushStatus('Notificaciones push desactivadas');
+    } else {
+      const permission = await requestPermission();
+      if (permission === 'granted') {
+        const sub = await subscribeUser();
+        if (sub) {
+          setPushEnabled(true);
+          setPushStatus('✅ Notificaciones push activadas');
+          await saveSubscriptionToFirestore(sub, dbProvider, house?.id, user?.uid);
+          await sendTestPush(sub);
+        }
+      } else {
+        setPushStatus('❌ Permiso denegado. Activá las notificaciones desde la configuración del navegador.');
+      }
+    }
+    setTimeout(() => setPushStatus(''), 4000);
+  };
+
   return (
     <div className="page active">
       <div className="page-header">
@@ -12,6 +45,31 @@ export default function Notificaciones({ notifications, onMarkAllRead }) {
           <button className="btn btn-ghost btn-sm" onClick={onMarkAllRead}>
             Marcar todo leído
           </button>
+        )}
+      </div>
+
+      {/* CONFIGURACIÓN PUSH */}
+      <div className="card mb-16" style={{ padding: '16px' }}>
+        <div className="flex-between">
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
+              📡 Notificaciones push
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
+              Recibí alertas incluso cuando la app está cerrada
+            </div>
+          </div>
+          <button
+            className={`btn btn-sm ${pushEnabled ? 'btn-secondary' : 'btn-primary'}`}
+            onClick={handleTogglePush}
+          >
+            {pushEnabled ? '🔕 Desactivar' : '🔔 Activar'}
+          </button>
+        </div>
+        {pushStatus && (
+          <div style={{ fontSize: '12px', marginTop: '8px', color: pushStatus.includes('✅') ? 'var(--green)' : pushStatus.includes('❌') ? 'var(--red)' : 'var(--text2)' }}>
+            {pushStatus}
+          </div>
         )}
       </div>
 

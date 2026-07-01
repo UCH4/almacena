@@ -18,6 +18,7 @@ let app;
 let auth;
 let db;
 const googleProvider = new GoogleAuthProvider();
+let isInitialized = false;
 
 if (isConfigured) {
   try {
@@ -30,6 +31,7 @@ if (isConfigured) {
         tabManager: persistentMultipleTabManager()
       })
     });
+    isInitialized = true;
     console.log("AlacenaApp Firebase: Conectado con éxito y persistencia offline activada.");
   } catch (error) {
     console.error("Error al inicializar Firebase SDK:", error);
@@ -38,4 +40,4 @@ if (isConfigured) {
   console.warn("AlacenaApp Firebase: Variables de entorno de Firebase no detectadas. Utilizando base de datos local (localStorage).");
 }
 
-export { app, auth, db, googleProvider, isConfigured };
+export { app, auth, db, googleProvider, isConfigured, isInitialized };

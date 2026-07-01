@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
+import { validate, productSchema } from '../services/validation';
 
-export default function Stock({ products, onAddProduct, onConsumeProduct, house, onUpdateCategories }) {
+export default function Stock({ products, onAddProduct, onEditProduct, onDeleteProduct, onConsumeProduct, house, onUpdateCategories }) {
   const [filterCat, setFilterCat] = useState('todos');
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isManageCatsOpen, setIsManageCatsOpen] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+
+  const [editProduct, setEditProduct] = useState(null);
+  const [editProdName, setEditProdName] = useState('');
+  const [editProdCat, setEditProdCat] = useState('');
+  const [editProdUnit, setEditProdUnit] = useState('');
+  const [editProdMin, setEditProdMin] = useState('1');
+  const [editConsumers, setEditConsumers] = useState({});
 
   // Campos del formulario de nuevo producto
   const [prodName, setProdName] = useState('');
@@ -12,7 +20,7 @@ export default function Stock({ products, onAddProduct, onConsumeProduct, house,
   const [prodUnit, setProdUnit] = useState('unidades');
   const [prodStock, setProdStock] = useState('0');
   const [prodMin, setProdMin] = useState('1');
-  const [consumers, setConsumers] = useState({ T: true, S: true });
+  const [consumers, setConsumers] = useState({});
 
   // Categorías del hogar (leídas de Firestore o con fallback local)
   const houseCategories = house?.categories || ['lácteos', 'carnes', 'verduras', 'despensa', 'bebidas', 'limpieza', 'perfumería'];
@@ -57,6 +65,20 @@ export default function Stock({ products, onAddProduct, onConsumeProduct, house,
     
     const consList = Object.keys(consumers).filter(uid => consumers[uid]);
 
+    try {
+      validate(productSchema, {
+        nombre: prodName.trim(),
+        cat: prodCat,
+        unit: prodUnit,
+        stock: parseFloat(prodStock) || 0,
+        minStock: parseFloat(prodMin) || 1,
+        consumidores: consList.length > 0 ? consList : house.members
+      });
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+
     onAddProduct({
       nombre: prodName.trim(),
       cat: prodCat,
@@ -67,6 +89,54 @@ export default function Stock({ products, onAddProduct, onConsumeProduct, house,
     });
 
     setIsAddProductOpen(false);
+  };
+
+  const openEditProduct = (p) => {
+    setEditProduct(p);
+    setEditProdName(p.nombre);
+    setEditProdCat(p.cat);
+    setEditProdUnit(p.unit);
+    setEditProdMin(String(p.minStock || 1));
+    const cons = {};
+    house.members.forEach(uid => { cons[uid] = p.consumidores?.includes(uid) || false; });
+    setEditConsumers(cons);
+  };
+
+  const closeEditProduct = () => {
+    setEditProduct(null);
+  };
+
+  const handleSaveEditProduct = () => {
+    if (!editProdName.trim()) return;
+    const consList = Object.keys(editConsumers).filter(uid => editConsumers[uid]);
+
+    try {
+      validate(productSchema, {
+        nombre: editProdName.trim(),
+        cat: editProdCat,
+        unit: editProdUnit,
+        minStock: parseFloat(editProdMin) || 1,
+        consumidores: consList.length > 0 ? consList : house.members
+      });
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+
+    onEditProduct(editProduct.id, {
+      nombre: editProdName.trim(),
+      cat: editProdCat,
+      unit: editProdUnit,
+      minStock: parseFloat(editProdMin) || 1,
+      consumidores: consList.length > 0 ? consList : house.members
+    });
+    closeEditProduct();
+  };
+
+  const handleDeleteProductClick = (p) => {
+    if (window.confirm(`¿Eliminar "${p.nombre}" del inventario?`)) {
+      onDeleteProduct(p.id);
+    }
   };
 
   const handleConsume = (p) => {
@@ -181,14 +251,22 @@ export default function Stock({ products, onAddProduct, onConsumeProduct, house,
                     </div>
                   </td>
                   <td>
-                    <button 
-                      className="btn btn-xs btn-ghost" 
-                      onClick={() => handleConsume(p)}
-                      disabled={p.stock <= 0}
-                      style={{ opacity: p.stock <= 0 ? 0.4 : 1 }}
-                    >
-                      - Consumir
-                    </button>
+                    <div className="flex" style={{ gap: '4px', alignItems: 'center' }}>
+                      <button 
+                        className="btn btn-xs btn-ghost" 
+                        onClick={() => handleConsume(p)}
+                        disabled={p.stock <= 0}
+                        style={{ opacity: p.stock <= 0 ? 0.4 : 1 }}
+                      >
+                        - Consumir
+                      </button>
+                      <button className="btn btn-xs btn-ghost" onClick={() => openEditProduct(p)}>
+                        ✏️
+                      </button>
+                      <button className="btn btn-xs btn-ghost" style={{ color: 'var(--red)' }} onClick={() => handleDeleteProductClick(p)}>
+                        🗑️
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -292,6 +370,68 @@ export default function Stock({ products, onAddProduct, onConsumeProduct, house,
           <div className="modal-footer">
             <button className="btn btn-ghost" onClick={() => setIsAddProductOpen(false)}>Cancelar</button>
             <button className="btn btn-primary" onClick={handleAddProduct}>Guardar producto</button>
+          </div>
+        </div>
+      </div>
+
+      {/* MODAL: EDITAR PRODUCTO */}
+      <div className={`modal-overlay ${editProduct ? 'open' : ''}`} onClick={(e) => e.target.classList.contains('modal-overlay') && closeEditProduct()}>
+        <div className="modal">
+          <div className="modal-header">
+            <div className="modal-title">✏️ Editar producto</div>
+            <button className="btn-close" onClick={closeEditProduct}>×</button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label className="form-label">Nombre del producto</label>
+              <input className="form-input" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} />
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label className="form-label">Categoría</label>
+                <select className="form-select" value={editProdCat} onChange={(e) => setEditProdCat(e.target.value)}>
+                  {houseCategories.map(cat => (
+                    <option key={cat} value={cat}>{getCatEmoji(cat)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Unidad de medida</label>
+                <select className="form-select" value={editProdUnit} onChange={(e) => setEditProdUnit(e.target.value)}>
+                  <option value="unidades">unidades</option>
+                  <option value="kg">kg</option>
+                  <option value="g">g</option>
+                  <option value="L">L</option>
+                  <option value="ml">ml</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Stock mínimo (umbral de alerta)</label>
+              <input className="form-input" type="number" step="any" value={editProdMin} onChange={(e) => setEditProdMin(e.target.value)} />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">¿Quiénes lo consumen?</label>
+              <div className="flex gap-12" style={{ marginTop: '8px', flexWrap: 'wrap' }}>
+                {house.members.map(uid => (
+                  <label key={uid} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!editConsumers[uid]}
+                      onChange={(e) => setEditConsumers({ ...editConsumers, [uid]: e.target.checked })}
+                    />
+                    {house.membersInfo[uid]?.name || 'Miembro'}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={closeEditProduct}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleSaveEditProduct}>Guardar cambios</button>
           </div>
         </div>
       </div>

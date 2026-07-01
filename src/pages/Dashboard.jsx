@@ -1,4 +1,16 @@
 import React, { useState } from 'react';
+import AdBanner from '../components/AdBanner';
+
+const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const CURRENT_MONTH_INDEX = new Date().getMonth();
+
+function getUserName(uid, membersInfo) {
+  if (!membersInfo || !uid) return uid;
+  const info = membersInfo[uid];
+  const name = info?.name || info?.displayName || uid;
+  const emoji = info?.emoji || '';
+  return emoji + name;
+}
 
 export default function Dashboard({ 
   purchases, 
@@ -7,102 +19,91 @@ export default function Dashboard({
   onOpenNewPurchase, 
   onViewPurchaseDetail, 
   activePage, 
-  setActivePage 
+  setActivePage,
+  house,
+  user
 }) {
-  const [chartMode, setChartMode] = useState('semana'); // 'semana' or 'mes'
+  const [chartMode, setChartMode] = useState('semana');
 
-  // Filtrar productos con stock bajo
+  const membersInfo = house?.membersInfo || {};
+  const members = house?.members || [user?.uid || 'T'];
+  const currentUserUid = user?.uid || members[0];
+  const otherMembers = members.filter(m => m !== currentUserUid);
+  const currentUserName = getUserName(currentUserUid, membersInfo);
+
   const lowStockProducts = products.filter(p => p.stock <= p.minStock);
-
-  // Filtrar últimas 3 compras
   const recentPurchases = purchases.slice(0, 3);
+  const currentMonthNum = (new Date().getMonth() + 1).toString().padStart(2, '0');
 
-  // Agrupamiento dinámico de datos para el gráfico
-  // Agrupar compras por mes
+  const COLORS = ['var(--accent)', 'var(--accent2)', 'var(--green)', 'var(--orange)', 'var(--red)', 'var(--purple)'];
+
   const getChartDataMes = () => {
-    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun'];
-    const data = months.map(m => ({ label: m, T: 0, S: 0 }));
-    
-    // Sumar semillas históricas fijas para simular historial anterior
-    // Febrero
-    data[1].T += 32000; data[1].S += 28000;
-    // Marzo
-    data[2].T += 38500; data[2].S += 35000;
-    // Abril
-    data[3].T += 41200; data[3].S += 37600;
-    // Mayo
-    data[4].T += 42000; data[4].S += 40700;
-
-    // Procesar compras reales en la base de datos
+    const data = MONTHS.slice(0, CURRENT_MONTH_INDEX + 1).map(m => {
+      const entry = { label: m };
+      members.forEach(uid => { entry[uid] = 0; });
+      return entry;
+    });
     purchases.forEach(p => {
       if (p.isSettlement || p.estado !== 'confirmada') return;
-      // Parsear fecha DD/MM/YYYY
       const parts = p.fecha.split('/');
       if (parts.length === 3) {
-        const monthNum = parseInt(parts[1], 10) - 1; // 0-indexed
-        if (monthNum >= 0 && monthNum <= 5) {
-          if (p.quien === 'T') data[monthNum].T += p.total;
-          if (p.quien === 'S') data[monthNum].S += p.total;
+        const monthNum = parseInt(parts[1], 10) - 1;
+        if (monthNum >= 0 && monthNum <= CURRENT_MONTH_INDEX && data[monthNum]?.[p.quien] !== undefined) {
+          data[monthNum][p.quien] += p.total;
         }
       }
     });
-
     return data;
   };
 
-  // Agrupar compras por semanas en Junio 2026 (mes actual en el mockup)
   const getChartDataSemana = () => {
     const data = [
-      { label: 'S1', T: 8200, S: 6400 },
-      { label: 'S2', T: 12300, S: 9800 },
-      { label: 'S3', T: 16200, S: 14480 },
-      { label: 'S4', T: 10500, S: 7970 },
+      { label: 'S1' }, { label: 'S2' }, { label: 'S3' }, { label: 'S4' },
     ];
+    data.forEach(d => { members.forEach(uid => { d[uid] = 0; }); });
 
-    // Procesar compras de Junio reales agregándolas a la semana respectiva
     purchases.forEach(p => {
       if (p.isSettlement || p.estado !== 'confirmada') return;
       const parts = p.fecha.split('/');
-      if (parts.length === 3 && parts[1] === '06') { // Solo Junio
+      if (parts.length === 3 && parts[1] === currentMonthNum) {
         const day = parseInt(parts[0], 10);
-        let weekIdx = 3; // Por defecto S4
+        let weekIdx = 3;
         if (day <= 7) weekIdx = 0;
         else if (day <= 14) weekIdx = 1;
         else if (day <= 21) weekIdx = 2;
-
-        if (p.quien === 'T') data[weekIdx].T += p.total;
-        if (p.quien === 'S') data[weekIdx].S += p.total;
+        if (data[weekIdx][p.quien] !== undefined) data[weekIdx][p.quien] += p.total;
       }
     });
-
     return data;
   };
 
   const chartData = chartMode === 'semana' ? getChartDataSemana() : getChartDataMes();
-  const maxVal = Math.max(...chartData.map(d => Math.max(d.T, d.S)), 1);
+  const allValues = chartData.flatMap(d => members.flatMap(uid => d[uid] || 0));
+  const maxVal = Math.max(...allValues, 1);
 
-  // Gastos totales de este mes (Junio)
-  const getGastadoEsteMes = (user) => {
+  const getGastadoEsteMes = (uid) => {
     let total = 0;
     purchases.forEach(p => {
       if (p.isSettlement || p.estado !== 'confirmada') return;
       const parts = p.fecha.split('/');
-      if (parts.length === 3 && parts[1] === '06') { // Junio
-        if (p.quien === user) total += p.total;
+      if (parts.length === 3 && parts[1] === currentMonthNum) {
+        if (p.quien === uid) total += p.total;
       }
     });
     return total;
   };
 
-  const gastadoTomas = getGastadoEsteMes('T');
-  const gastadoHermana = getGastadoEsteMes('S');
+  const getBalanceText = () => {
+    if (balances.net.amount === 0) return 'Cuentas saldadas';
+    return `${getUserName(balances.net.fromUser, membersInfo)} debe a ${getUserName(balances.net.toUser, membersInfo)}`;
+  };
 
   return (
     <div className="page active">
       <div className="page-header">
         <div className="page-title">
-          ¡Hola, Tomas! 👋
-          <small>Resumen de la alacena · Junio 2026</small>
+          ¡Hola, {currentUserName}! 👋
+          <small>Resumen de la alacena · {MONTHS[CURRENT_MONTH_INDEX]} {new Date().getFullYear()}</small>
         </div>
         <button className="btn btn-primary" onClick={onOpenNewPurchase}>+ Nueva compra</button>
       </div>
@@ -111,16 +112,16 @@ export default function Dashboard({
       <div className="grid-4 mb-20">
         <div className="stat-card blue">
           <div className="stat-icon">💳</div>
-          <div className="stat-label">Gasté este mes (Jun)</div>
-          <div className="stat-value">${gastadoTomas.toLocaleString('es-AR')}</div>
-          <div className="stat-sub">+12% vs mayo</div>
+          <div className="stat-label">Gasté este mes</div>
+          <div className="stat-value">${getGastadoEsteMes(currentUserUid).toLocaleString('es-AR')}</div>
         </div>
-        <div className="stat-card purple">
-          <div className="stat-icon">👩</div>
-          <div className="stat-label">Gastó mi hermana (Jun)</div>
-          <div className="stat-value">${gastadoHermana.toLocaleString('es-AR')}</div>
-          <div className="stat-sub">-5% vs mayo</div>
-        </div>
+        {otherMembers.slice(0, 2).map(uid => (
+          <div key={uid} className="stat-card purple">
+            <div className="stat-icon">👤</div>
+            <div className="stat-label">Gastó {getUserName(uid, membersInfo)}</div>
+            <div className="stat-value">${getGastadoEsteMes(uid).toLocaleString('es-AR')}</div>
+          </div>
+        ))}
         <div className="stat-card green">
           <div className="stat-icon">📦</div>
           <div className="stat-label">Productos en stock</div>
@@ -131,13 +132,7 @@ export default function Dashboard({
           <div className="stat-icon">⚖️</div>
           <div className="stat-label">Balance neto</div>
           <div className="stat-value">{balances.net.formattedAmount}</div>
-          <div className="stat-sub">
-            {balances.net.amount === 0 
-              ? 'Cuentas saldadas' 
-              : balances.net.fromUser === 'S' 
-                ? 'Te deben a vos' 
-                : 'Debés a tu hermana'}
-          </div>
+          <div className="stat-sub">{getBalanceText()}</div>
         </div>
       </div>
 
@@ -165,30 +160,32 @@ export default function Dashboard({
             {chartData.map((d, idx) => (
               <div className="bar-group" key={idx}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', flex: 1, width: '100%' }}>
-                  <div 
-                    className="bar-col tomas" 
-                    style={{ height: `${(d.T / maxVal) * 120}px` }} 
-                    title={`Tomas: $${d.T.toLocaleString()}`}
-                  ></div>
-                  <div 
-                    className="bar-col hermana" 
-                    style={{ height: `${(d.S / maxVal) * 120}px` }} 
-                    title={`Hermana: $${d.S.toLocaleString()}`}
-                  ></div>
+                  {members.map((uid, mi) => (
+                    <div
+                      key={uid}
+                      className="bar-col"
+                      style={{
+                        height: `${((d[uid] || 0) / maxVal) * 120}px`,
+                        background: COLORS[mi % COLORS.length],
+                        borderRadius: '4px 4px 0 0',
+                        flex: 1,
+                        transition: 'height 0.3s'
+                      }}
+                      title={`${getUserName(uid, membersInfo)}: $${(d[uid] || 0).toLocaleString()}`}
+                    ></div>
+                  ))}
                 </div>
                 <div className="bar-label">{d.label}</div>
               </div>
             ))}
           </div>
           <div className="bar-legend">
-            <div className="bar-legend-item">
-              <div className="bar-dot" style={{ backgroundColor: 'var(--accent)' }}></div>
-              Tomas
-            </div>
-            <div className="bar-legend-item">
-              <div className="bar-dot" style={{ backgroundColor: 'var(--accent2)' }}></div>
-              Hermana
-            </div>
+            {members.map((uid, mi) => (
+              <div key={uid} className="bar-legend-item">
+                <div className="bar-dot" style={{ backgroundColor: COLORS[mi % COLORS.length] }}></div>
+                {getUserName(uid, membersInfo)}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -211,7 +208,7 @@ export default function Dashboard({
                     {c.comercio} {c.isSettlement && <span className="badge badge-green">Liquidación</span>}
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text3)' }}>
-                    {c.fecha} · {c.quien === 'T' ? 'Tomas' : 'Hermana'}
+                    {c.fecha} · {getUserName(c.quien, membersInfo)}
                   </div>
                 </div>
                 <div className="text-right">
@@ -227,6 +224,8 @@ export default function Dashboard({
           </div>
         </div>
       </div>
+
+      <AdBanner />
 
       <div className="mt-16 grid-2">
         {/* STOCK BAJO */}
@@ -262,29 +261,23 @@ export default function Dashboard({
         {/* BALANCE RAPIDO */}
         <div className="card">
           <div className="card-title mb-12">Balance actual</div>
-          <div className="debt-card" style={{ border: 'none', padding: 0 }}>
-            <div className="debt-avatars">
-              <div className="debt-avatar" style={{ background: 'linear-gradient(135deg, var(--accent), #3a7de0)' }}>T</div>
-              <div className="debt-avatar" style={{ background: 'linear-gradient(135deg, var(--accent2), #6a4de0)' }}>S</div>
-            </div>
-            <div className="debt-info">
-              <div className="debt-text">
-                {balances.net.amount === 0 
-                  ? 'Están al día' 
-                  : balances.net.fromUser === 'S' 
-                    ? 'Tu hermana te debe' 
-                    : 'Le debés a tu hermana'}
-              </div>
-              <div className="debt-sub">
-                Cálculo en tiempo real por consumo individual y compartido.
-              </div>
-            </div>
-            <div 
-              className="debt-amount" 
-              style={{ color: balances.net.amount === 0 ? 'var(--text2)' : balances.net.fromUser === 'S' ? 'var(--green)' : 'var(--red)' }}
-            >
-              {balances.net.formattedAmount}
-            </div>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {(balances.members || []).slice(0, 4).map((m, mi) => {
+              const netAmount = m.net || 0;
+              return (
+                <div key={m.uid} className="flex-between" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div className="flex" style={{ gap: '8px', alignItems: 'center' }}>
+                    <div className="debt-avatar" style={{ width: '28px', height: '28px', fontSize: '12px', background: COLORS[mi % COLORS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', color: '#fff', fontWeight: 700 }}>
+                      {(getUserName(m.uid, membersInfo) || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <span style={{ fontSize: '13px' }}>{getUserName(m.uid, membersInfo)}</span>
+                  </div>
+                  <span style={{ fontWeight: 600, fontSize: '13px', color: netAmount === 0 ? 'var(--text2)' : netAmount > 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {netAmount > 0 ? '+' : ''}${Math.abs(Math.round(netAmount)).toLocaleString('es-AR')}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <hr className="sep" />
           <div className="flex-between">

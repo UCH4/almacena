@@ -1,401 +1,150 @@
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  getDocs,
-  addDoc, 
-  updateDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  onSnapshot, 
-  runTransaction,
-  writeBatch,
-  serverTimestamp
-} from 'firebase/firestore';
+import { doc, getDoc, updateDoc, getDocs, query, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { localCache } from './localCache';
+
+import {
+  getHouse, getUserHouses, switchHouse, createHouse, joinHouse,
+  updateHouseCategories, updateMemberInfo, leaveHouse,
+  updateHouseSheetUrl, updateHouseWebhookUrl, syncToWebhook,
+  subscribeToHouse
+} from './repos/house';
+import {
+  getUserProfile, saveUserProfile
+} from './repos/profile';
+import {
+  subscribeToPurchases, addPurchase, updatePurchase, deletePurchase,
+  saldarDeudas, getBalances
+} from './repos/purchase';
+import {
+  subscribeToProducts, consumeProduct, consumeMultipleProducts,
+  addProduct, updateProduct, deleteProduct
+} from './repos/product';
+import {
+  subscribeToNotifications, subscribeToAuditLog,
+  markNotificationsRead, savePushSubscription, saveMealPlan,
+  checkAndCreateStockAlert
+} from './repos/notification';
 
 class FirebaseDb {
-  // --- GESTIÓN DE PERFILES DE USUARIO ---
-  async getUserProfile(userId) {
-    const docRef = doc(db, 'users', userId);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? docSnap.data() : null;
+  constructor() {
+    this.currentUser = null;
   }
 
-  async saveUserProfile(userId, data) {
-    const docRef = doc(db, 'users', userId);
-    await setDoc(docRef, {
-      uid: userId,
-      updatedAt: serverTimestamp(),
-      ...data
-    }, { merge: true });
+  setCurrentUser(user) {
+    this.currentUser = user;
   }
 
-  // --- GESTIÓN DE CASAS (HOGARES) ---
-  async getHouse(houseId) {
-    const docRef = doc(db, 'houses', houseId);
-    const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? docSnap.data() : null;
+  _userMeta() {
+    const u = this.currentUser;
+    return u ? { uid: u.uid, displayName: u.displayName || u.email || "Usuario" } : null;
   }
 
-  // Crear una nueva casa
-  async createHouse(userId, houseName, userName, userPhoto = '') {
-    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase(); // Código de 6 letras/números
-    const houseRef = doc(collection(db, 'houses'));
-    const houseId = houseRef.id;
+  // --- PERFILES ---
+  getUserProfile(userId) { return getUserProfile(userId); }
+  saveUserProfile(userId, data) { return saveUserProfile(userId, data); }
 
-    const houseData = {
-      id: houseId,
-      name: houseName,
-      inviteCode,
-      owner: userId,
-      members: [userId],
-      membersInfo: {
-        [userId]: { name: userName, photo: userPhoto }
-      },
-      categories: ['lácteos', 'carnes', 'verduras', 'despensa', 'bebidas', 'limpieza', 'perfumería'],
-      createdAt: serverTimestamp()
-    };
-
-    await setDoc(houseRef, houseData);
-    
-    // Asociar al usuario a esta casa activa
-    await this.saveUserProfile(userId, { activeHouseId: houseId });
-
-    return houseData;
+  // --- CASAS ---
+  getHouse(houseId) { return getHouse(houseId); }
+  getUserHouses(userId) { return getUserHouses(userId); }
+  switchHouse(userId, houseId) { return switchHouse(userId, houseId); }
+  createHouse(userId, houseName, userName, userPhoto, userEmoji) {
+    return createHouse(userId, houseName, userName, userPhoto, userEmoji);
   }
+  joinHouse(userId, inviteCode, userName, userPhoto, userEmoji) {
+    return joinHouse(userId, inviteCode, userName, userPhoto, userEmoji);
+  }
+  updateHouseCategories(houseId, categories) {
+    return updateHouseCategories(houseId, categories);
+  }
+  updateMemberInfo(houseId, userId, data) {
+    return updateMemberInfo(houseId, userId, data);
+  }
+  leaveHouse(houseId, userId, userName) {
+    return leaveHouse(houseId, userId, userName);
+  }
+  updateHouseSheetUrl(houseId, sheetUrl) {
+    return updateHouseSheetUrl(houseId, sheetUrl);
+  }
+  updateHouseWebhookUrl(houseId, webhookUrl) {
+    return updateHouseWebhookUrl(houseId, webhookUrl);
+  }
+  syncToWebhook(houseId, data) { return syncToWebhook(houseId, data); }
 
-  // Unirse a una casa existente usando el código de invitación
-  async joinHouse(userId, inviteCode, userName, userPhoto = '') {
-    const q = query(collection(db, 'houses'), where('inviteCode', '==', inviteCode.toUpperCase().trim()));
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) {
-      throw new Error('Código de invitación inválido.');
-    }
-
-    const houseDoc = querySnapshot.docs[0];
-    const houseData = houseDoc.data();
-    const houseId = houseDoc.id;
-
-    if (houseData.members.includes(userId)) {
-      // Ya es miembro, solo actualizar casa activa
-      await this.saveUserProfile(userId, { activeHouseId: houseId });
-      return houseData;
-    }
-
-    // Agregar miembro al documento de la casa
-    const houseRef = doc(db, 'houses', houseId);
-    const updatedMembers = [...houseData.members, userId];
-    const updatedMembersInfo = {
-      ...houseData.membersInfo,
-      [userId]: { name: userName, photo: userPhoto }
-    };
-
-    await updateDoc(houseRef, {
-      members: updatedMembers,
-      membersInfo: updatedMembersInfo
+  // --- SUBSCRIPTIONS ---
+  subscribeToHouse(houseId, callback) {
+    return subscribeToHouse(houseId, (data) => {
+      localCache.setAll('house', [data]);
+      callback(data);
     });
-
-    // Asociar al usuario a esta casa activa
-    await this.saveUserProfile(userId, { activeHouseId: houseId });
-
-    return { ...houseData, members: updatedMembers, membersInfo: updatedMembersInfo };
   }
 
-  // Actualizar categorías de la casa
-  async updateHouseCategories(houseId, categories) {
-    const houseRef = doc(db, 'houses', houseId);
-    await updateDoc(houseRef, { categories });
-  }
-
-  // --- LISTENERS EN TIEMPO REAL (SYNC) ---
   subscribeToPurchases(houseId, callback) {
-    const q = query(
-      collection(db, 'houses', houseId, 'purchases'), 
-      orderBy('createdAt', 'desc')
-    );
-    return onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return subscribeToPurchases(houseId, (list) => {
+      localCache.setAll('purchases', list);
       callback(list);
-    }, (error) => {
-      console.error("Error subscribiéndose a compras:", error);
     });
   }
 
   subscribeToProducts(houseId, callback) {
-    const q = query(collection(db, 'houses', houseId, 'products'));
-    return onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return subscribeToProducts(houseId, (list) => {
+      localCache.setAll('products', list);
       callback(list);
-    }, (error) => {
-      console.error("Error subscribiéndose a stock:", error);
     });
   }
 
   subscribeToNotifications(houseId, callback) {
-    const q = query(
-      collection(db, 'houses', houseId, 'notifications'),
-      orderBy('createdAt', 'desc'),
-      limit(30)
-    );
-    return onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(list);
-    }, (error) => {
-      console.error("Error subscribiéndose a notificaciones:", error);
-    });
+    return subscribeToNotifications(houseId, callback);
   }
 
-  // --- MUTACIONES DE DATOS ---
-  
-  // Agregar una nueva compra
-  async addPurchase(houseId, purchase) {
-    const batch = writeBatch(db);
-    const purchaseRef = doc(collection(db, 'houses', houseId, 'purchases'));
-    
-    const newPurchase = {
-      ...purchase,
-      createdAt: serverTimestamp()
-    };
-    
-    // Guardar compra
-    batch.set(purchaseRef, newPurchase);
-
-    // Si está confirmada, integrar ítems al stock
-    if (purchase.estado === 'confirmada') {
-      // Leeremos los productos actuales para actualizar stock
-      const productsSnap = await getDocs(collection(db, 'houses', houseId, 'products'));
-      const products = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      purchase.items.forEach(item => {
-        const found = products.find(p => p.nombre.toLowerCase().trim() === item.nombre.toLowerCase().trim());
-        if (found) {
-          const productRef = doc(db, 'houses', houseId, 'products', found.id);
-          batch.update(productRef, {
-            stock: Math.round((found.stock + item.qty) * 100) / 100
-          });
-        } else {
-          // Crear nuevo producto
-          const newProductRef = doc(collection(db, 'houses', houseId, 'products'));
-          batch.set(newProductRef, {
-            nombre: item.nombre,
-            cat: this.guessCategory(item.nombre),
-            unit: item.unit || 'unidades',
-            stock: item.qty,
-            minStock: 1,
-            consumidores: item.consumidores || ['T', 'S'],
-            createdAt: serverTimestamp()
-          });
-        }
-      });
-    }
-
-    await batch.commit();
+  subscribeToAuditLog(houseId, callback) {
+    return subscribeToAuditLog(houseId, callback);
   }
 
-  // Consumir un producto
-  async consumeProduct(houseId, productId, amount) {
-    const productRef = doc(db, 'houses', houseId, 'products', productId);
-    
-    await runTransaction(db, async (transaction) => {
-      const sfDoc = await transaction.get(productRef);
-      if (!sfDoc.exists()) {
-        throw new Error("El producto no existe.");
-      }
+  // --- COMPRAS ---
+  addPurchase(houseId, purchase) {
+    return addPurchase(houseId, purchase, this._userMeta());
+  }
+  updatePurchase(houseId, purchaseId, data) {
+    return updatePurchase(houseId, purchaseId, data, this._userMeta());
+  }
+  deletePurchase(houseId, purchaseId) {
+    return deletePurchase(houseId, purchaseId, this._userMeta());
+  }
+  saldarDeudas(houseId, balance, payerUid, receiverUid, payerName, receiverName) {
+    return saldarDeudas(houseId, balance, payerUid, receiverUid, payerName, receiverName, this._userMeta());
+  }
+  getBalances(houseId) { return getBalances(houseId); }
 
-      const newStock = Math.max(0, Math.round((sfDoc.data().stock - amount) * 100) / 100);
-      transaction.update(productRef, { stock: newStock });
-    });
-
-    // Validar alertas de stock bajo después del consumo
-    setTimeout(() => this.checkAndCreateStockAlert(houseId, productId), 1000);
+  // --- PRODUCTOS ---
+  consumeProduct(houseId, productId, amount) {
+    return consumeProduct(houseId, productId, amount, this._userMeta());
+  }
+  consumeMultipleProducts(houseId, consumptions) {
+    return consumeMultipleProducts(houseId, consumptions, this._userMeta());
+  }
+  addProduct(houseId, product) {
+    return addProduct(houseId, product, this._userMeta());
+  }
+  updateProduct(houseId, productId, data) {
+    return updateProduct(houseId, productId, data, this._userMeta());
+  }
+  deleteProduct(houseId, productId) {
+    return deleteProduct(houseId, productId, this._userMeta());
   }
 
-  // Consumir múltiples productos (para recetas)
-  async consumeMultipleProducts(houseId, consumptions) {
-    const batch = writeBatch(db);
-    
-    for (const c of consumptions) {
-      const productRef = doc(db, 'houses', houseId, 'products', c.id);
-      const sfDoc = await getDoc(productRef);
-      if (sfDoc.exists()) {
-        const newStock = Math.max(0, Math.round((sfDoc.data().stock - c.amount) * 100) / 100);
-        batch.update(productRef, { stock: newStock });
-      }
-    }
-
-    await batch.commit();
-
-    // Validar alertas de stock
-    consumptions.forEach(c => {
-      setTimeout(() => this.checkAndCreateStockAlert(houseId, c.id), 1000);
-    });
+  // --- NOTIFICACIONES ---
+  markNotificationsRead(houseId, notifications) {
+    return markNotificationsRead(houseId, notifications, this._userMeta());
   }
-
-  // Validar y gatillar alertas de stock bajo
-  async checkAndCreateStockAlert(houseId, productId) {
-    const productRef = doc(db, 'houses', houseId, 'products', productId);
-    const pSnap = await getDoc(productRef);
-    if (!pSnap.exists()) return;
-    const p = pSnap.data();
-
-    if (p.stock <= p.minStock) {
-      // Buscar si ya existe una alerta activa (no leída)
-      const q = query(
-        collection(db, 'houses', houseId, 'notifications'), 
-        where('tipo', '==', 'stock'),
-        where('leida', '==', false)
-      );
-      const notifsSnap = await getDocs(q);
-      const exists = notifsSnap.docs.some(d => d.data().titulo.includes(p.nombre));
-
-      if (!exists) {
-        const notifRef = doc(collection(db, 'houses', houseId, 'notifications'));
-        const stockText = p.stock === 0 ? 'Agotado' : `Quedan ${p.stock} ${p.unit}`;
-        await setDoc(notifRef, {
-          tipo: 'stock',
-          icon: '⚠️',
-          titulo: `Stock bajo: ${p.nombre}`,
-          msg: `${stockText}. El mínimo configurado es ${p.minStock}.`,
-          time: 'Ahora mismo',
-          leida: false,
-          createdAt: serverTimestamp()
-        });
-      }
-    }
+  savePushSubscription(houseId, userId, subscription) {
+    return savePushSubscription(houseId, userId, subscription);
   }
-
-  // Agregar producto manualmente
-  async addProduct(houseId, product) {
-    const newProductRef = doc(collection(db, 'houses', houseId, 'products'));
-    await setDoc(newProductRef, {
-      ...product,
-      createdAt: serverTimestamp()
-    });
+  saveMealPlan(houseId, mealPlan) {
+    return saveMealPlan(houseId, mealPlan);
   }
-
-  // Saldar deudas
-  async saldarDeudas(houseId, balance, payerUid, receiverUid, payerName, receiverName) {
-    const batch = writeBatch(db);
-    const purchaseRef = doc(collection(db, 'houses', houseId, 'purchases'));
-    const notifRef = doc(collection(db, 'houses', houseId, 'notifications'));
-
-    const settlement = {
-      fecha: new Date().toLocaleDateString('es-AR'),
-      comercio: 'Liquidación de Deuda',
-      quien: payerUid, // Guarda el UID de quien saldó
-      total: balance,
-      isSettlement: true,
-      items: [
-        {
-          nombre: `Pago de deuda neto (${payerName} -> ${receiverName})`,
-          qty: 1,
-          unit: 'transacción',
-          precio: balance,
-          consumidores: [payerUid],
-          shared: false
-        }
-      ],
-      estado: 'confirmada',
-      createdAt: serverTimestamp()
-    };
-
-    batch.set(purchaseRef, settlement);
-
-    // Crear notificación
-    batch.set(notifRef, {
-      tipo: 'deuda',
-      icon: '💰',
-      titulo: 'Deuda liquidada',
-      msg: `${payerName} saldó la deuda de $${Math.round(balance).toLocaleString('es-AR')}.`,
-      time: 'Ahora mismo',
-      leida: false,
-      createdAt: serverTimestamp()
-    });
-
-    await batch.commit();
+  checkAndCreateStockAlert(houseId, productId) {
+    return checkAndCreateStockAlert(houseId, productId);
   }
-
-  // Marcar notificaciones como leídas
-  async markNotificationsRead(houseId, notifications) {
-    const batch = writeBatch(db);
-    notifications.forEach(n => {
-      if (!n.leida) {
-        const notifRef = doc(db, 'houses', houseId, 'notifications', n.id);
-        batch.update(notifRef, { leida: true });
-      }
-    });
-    await batch.commit();
-  }
-
-  // Guardar Plan Alimentario en Firestore
-  async saveMealPlan(houseId, mealPlan) {
-    const houseRef = doc(db, 'houses', houseId);
-    await updateDoc(houseRef, { mealPlan });
-  }
-
-  // Categorizador básico
-  guessCategory(name) {
-    const n = name.toLowerCase();
-    if (n.includes('leche') || n.includes('yogur') || n.includes('queso') || n.includes('manteca') || n.includes('crema')) return 'lácteos';
-    if (n.includes('carne') || n.includes('milanesa') || n.includes('pollo') || n.includes('medallon')) return 'carnes';
-    if (n.includes('banana') || n.includes('manzana') || n.includes('tomate') || n.includes('papa') || n.includes('verdura')) return 'verduras';
-    if (n.includes('fideo') || n.includes('arroz') || n.includes('aceite') || n.includes('salsa') || n.includes('harina') || n.includes('lata') || n.includes('proteína') || n.includes('whey')) return 'despensa';
-    if (n.includes('detergente') || n.includes('esponja') || n.includes('limón') || n.includes('lavavajilla') || n.includes('limpieza')) return 'limpieza';
-    if (n.includes('shampoo') || n.includes('acondicionador') || n.includes('jabón') || n.includes('dove') || n.includes('sedal')) return 'perfumería';
-    return 'despensa';
-  }
-  // Agregar en FirebaseDb class:
-async getBalances(houseId) {
-  const snap = await getDocs(
-    query(collection(db, 'houses', houseId, 'purchases'))
-  );
-  const purchases = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  let totalPaidT = 0, totalPaidS = 0;
-  let totalShouldPayT = 0, totalShouldPayS = 0;
-  let settlementT_to_S = 0, settlementS_to_T = 0;
-
-  purchases.forEach(p => {
-    if (p.isSettlement) {
-      if (p.quien === 'T') settlementT_to_S += p.total;
-      else if (p.quien === 'S') settlementS_to_T += p.total;
-    } else if (p.estado === 'confirmada') {
-      if (p.quien === 'T') totalPaidT += p.total;
-      if (p.quien === 'S') totalPaidS += p.total;
-      p.items?.forEach(item => {
-        const cost = item.precio * item.qty;
-        const hasT = item.consumidores?.includes('T');
-        const hasS = item.consumidores?.includes('S');
-        if (item.shared || (hasT && hasS)) {
-          totalShouldPayT += cost / 2;
-          totalShouldPayS += cost / 2;
-        } else if (hasT) { totalShouldPayT += cost; }
-        else if (hasS) { totalShouldPayS += cost; }
-      });
-    }
-  });
-
-  const netBalanceT = (totalPaidT - totalShouldPayT) + (settlementT_to_S - settlementS_to_T);
-  return {
-    net: {
-      fromUser: netBalanceT < 0 ? 'T' : 'S',
-      toUser: netBalanceT < 0 ? 'S' : 'T',
-      amount: Math.round(Math.abs(netBalanceT) * 100) / 100,
-      formattedAmount: `$${Math.round(Math.abs(netBalanceT)).toLocaleString('es-AR')}`
-    },
-    summary: {
-      totalPaidT: Math.round(totalPaidT),
-      totalPaidS: Math.round(totalPaidS),
-      totalShouldPayT: Math.round(totalShouldPayT),
-      totalShouldPayS: Math.round(totalShouldPayS)
-    }
-  };
-}
 }
 
 export const firebaseDb = new FirebaseDb();

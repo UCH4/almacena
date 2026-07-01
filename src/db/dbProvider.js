@@ -1,16 +1,22 @@
 import { mockDb } from './mockDb';
 import { firebaseDb } from './firebaseDb';
-import { isConfigured } from './firebase';
+import { isConfigured, isInitialized } from './firebase';
 
 class DbProvider {
   constructor() {
-    this.useFirebase = isConfigured;
+    this.useFirebase = isConfigured && isInitialized;
     if (this.useFirebase) {
       this.db = firebaseDb;
       console.log('AlacenaApp DB: Conectado a Cloud Firestore.');
     } else {
       this.db = mockDb;
       console.log('AlacenaApp DB: Modo local persistente (localStorage).');
+    }
+  }
+
+  setCurrentUser(user) {
+    if (this.useFirebase) {
+      this.db.setCurrentUser(user);
     }
   }
 
@@ -40,13 +46,13 @@ class DbProvider {
     };
   }
 
-  async createHouse(userId, houseName, userName, userPhoto) {
-    if (this.useFirebase) return this.db.createHouse(userId, houseName, userName, userPhoto);
+  async createHouse(userId, houseName, userName, userPhoto, userEmoji) {
+    if (this.useFirebase) return this.db.createHouse(userId, houseName, userName, userPhoto, userEmoji);
     return null;
   }
 
-  async joinHouse(userId, inviteCode, userName, userPhoto) {
-    if (this.useFirebase) return this.db.joinHouse(userId, inviteCode, userName, userPhoto);
+  async joinHouse(userId, inviteCode, userName, userPhoto, userEmoji) {
+    if (this.useFirebase) return this.db.joinHouse(userId, inviteCode, userName, userPhoto, userEmoji);
     return null;
   }
 
@@ -54,27 +60,65 @@ class DbProvider {
     if (this.useFirebase) return this.db.updateHouseCategories(houseId, categories);
   }
 
+  async updateMemberInfo(houseId, userId, data) {
+    if (this.useFirebase) return this.db.updateMemberInfo(houseId, userId, data);
+  }
+
+  async leaveHouse(houseId, userId, userName) {
+    if (this.useFirebase) return this.db.leaveHouse(houseId, userId, userName);
+    return { left: true, remainingMembers: [], activeHouseId: null };
+  }
+
+  async getUserHouses(userId) {
+    if (this.useFirebase) return this.db.getUserHouses(userId);
+    return [{ id: 'local_house', name: 'Casa Tomas (Local)', members: ['T', 'S'], membersInfo: { 'T': { name: 'Tomas' }, 'S': { name: 'Hermana' } } }];
+  }
+
+  async switchHouse(userId, houseId) {
+    if (this.useFirebase) return this.db.switchHouse(userId, houseId);
+    return this.getHouse(houseId);
+  }
+
+  async updateHouseSheetUrl(houseId, sheetUrl) {
+    if (this.useFirebase) return this.db.updateHouseSheetUrl(houseId, sheetUrl);
+  }
+
+  async updateHouseWebhookUrl(houseId, webhookUrl) {
+    if (this.useFirebase) return this.db.updateHouseWebhookUrl(houseId, webhookUrl);
+  }
+
+  async syncToWebhook(houseId, data) {
+    if (this.useFirebase) return this.db.syncToWebhook(houseId, data);
+  }
+
   async saveMealPlan(houseId, mealPlan) {
     if (this.useFirebase) return this.db.saveMealPlan(houseId, mealPlan);
   }
 
   // --- LISTENERS EN TIEMPO REAL ---
+  subscribeToHouse(houseId, callback) {
+    if (this.useFirebase) return this.db.subscribeToHouse(houseId, callback);
+    return () => {};
+  }
+
   subscribeToPurchases(houseId, callback) {
     if (this.useFirebase) return this.db.subscribeToPurchases(houseId, callback);
-    // En modo Mock, llamamos al callback con los datos iniciales y devolvemos función vacía
-    callback(this.db.getPurchases());
-    return () => {};
+    return this.db.subscribeToPurchases(callback);
   }
 
   subscribeToProducts(houseId, callback) {
     if (this.useFirebase) return this.db.subscribeToProducts(houseId, callback);
-    callback(this.db.getProducts());
-    return () => {};
+    return this.db.subscribeToProducts(callback);
   }
 
   subscribeToNotifications(houseId, callback) {
     if (this.useFirebase) return this.db.subscribeToNotifications(houseId, callback);
-    callback(this.db.getNotifications());
+    return this.db.subscribeToNotifications(callback);
+  }
+
+  subscribeToAuditLog(houseId, callback) {
+    if (this.useFirebase) return this.db.subscribeToAuditLog(houseId, callback);
+    callback([]);
     return () => {};
   }
 
@@ -89,6 +133,11 @@ class DbProvider {
     return this.db.updatePurchase(id, data);
   }
 
+  async deletePurchase(houseId, id) {
+    if (this.useFirebase) return this.db.deletePurchase(houseId, id);
+    return this.db.deletePurchase(id);
+  }
+
   // --- PRODUCTOS / STOCK ---
   async addProduct(houseId, product) {
     if (this.useFirebase) return this.db.addProduct(houseId, product);
@@ -98,6 +147,16 @@ class DbProvider {
   async updateProductStock(houseId, id, newStock) {
     if (this.useFirebase) return this.db.updateProductStock(houseId, id, newStock);
     return this.db.updateProductStock(id, newStock);
+  }
+
+  async updateProduct(houseId, id, data) {
+    if (this.useFirebase) return this.db.updateProduct(houseId, id, data);
+    return this.db.updateProduct(id, data);
+  }
+
+  async deleteProduct(houseId, id) {
+    if (this.useFirebase) return this.db.deleteProduct(houseId, id);
+    return this.db.deleteProduct(id);
   }
 
   async consumeProduct(houseId, id, amount) {
@@ -124,6 +183,11 @@ class DbProvider {
     return this.db.saldarDeudas();
   }
 
+  async savePushSubscription(houseId, userId, subscription) {
+    if (this.useFirebase) return this.db.savePushSubscription(houseId, userId, subscription);
+    return this.db.savePushSubscription(houseId, userId, subscription);
+  }
+
   // --- NOTIFICACIONES ---
   async markNotificationsRead(houseId, notificationsList) {
     if (this.useFirebase) return this.db.markNotificationsRead(houseId, notificationsList);
@@ -132,4 +196,4 @@ class DbProvider {
 }
 
 export const dbProvider = new DbProvider();
-export const isFirebaseActive = isConfigured;
+export const isFirebaseActive = isConfigured && isInitialized;
